@@ -35,6 +35,7 @@ describe("buildRenderCommand", () => {
     expect(filter).toContain("trim=start=0:end=7.5");
     expect(filter).toContain("trim=start=10:end=17.5");
     expect(filter).toContain("concat=n=2:v=1:a=0");
+    expect(filter).toContain("fps=30");
   });
 });
 

@@ -14,7 +14,7 @@ export function buildRenderCommand({ sourcePath, voicePath, plan }: RenderComman
     )
     .join(";");
   const streams = plan.scenes.map((_, index) => `[v${index}]`).join("");
-  const filter = `${trims};${streams}concat=n=${plan.scenes.length}:v=1:a=0,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,subtitles=subtitles.ass[outv]`;
+  const filter = `${trims};${streams}concat=n=${plan.scenes.length}:v=1:a=0,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,subtitles=subtitles.ass[outv]`;
 
   return [
     "-i",
