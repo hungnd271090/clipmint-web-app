@@ -45,6 +45,10 @@ export function buildRenderCommand({ sourcePath, voicePath, plan }: RenderComman
     "4.0",
     "-tag:v",
     "avc1",
+    // Normalize the generated voice before encoding. Padding keeps the audio
+    // track alive for the complete planned video duration.
+    "-af",
+    "aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11,apad",
     "-c:a",
     "aac",
     "-b:a",
@@ -53,7 +57,6 @@ export function buildRenderCommand({ sourcePath, voicePath, plan }: RenderComman
     "48000",
     "-ac",
     "2",
-    "-shortest",
     "-movflags",
     "+faststart",
     "-f",

@@ -22,10 +22,12 @@ describe("buildRenderCommand", () => {
     expect(option(command, "-pix_fmt")).toBe("yuv420p");
     expect(option(command, "-profile:v")).toBe("main");
     expect(option(command, "-tag:v")).toBe("avc1");
+    expect(option(command, "-af")).toBe("aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11,apad");
     expect(option(command, "-c:a")).toBe("aac");
     expect(option(command, "-ar")).toBe("48000");
     expect(option(command, "-movflags")).toBe("+faststart");
     expect(option(command, "-f")).toBe("mp4");
+    expect(command).not.toContain("-shortest");
   });
 
   it("keeps every planned scene in the concat filter", () => {

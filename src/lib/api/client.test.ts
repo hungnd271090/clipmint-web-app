@@ -46,4 +46,37 @@ describe("API request transport", () => {
     await expect(request).rejects.toMatchObject({ status: 413, code: "request_too_large" });
     expect(called).toBe(false);
   });
+
+  it("accepts an audio response from the voice endpoint", async () => {
+    const fetcher: typeof fetch = async () => new Response(new Uint8Array(2_000), {
+      status: 200,
+      headers: { "Content-Type": "audio/mpeg" },
+    });
+
+    const voice = await createApiClient("https://api.example.com", fetcher).generateVoice({
+      text: "Xin chào",
+      voice: "coral",
+      style: "Tự nhiên",
+      targetDurationSeconds: 15,
+    });
+
+    expect(voice.type).toBe("audio/mpeg");
+    expect(voice.size).toBe(2_000);
+  });
+
+  it("rejects a successful non-audio voice response", async () => {
+    const fetcher: typeof fetch = async () => new Response("{}", {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const request = createApiClient("https://api.example.com", fetcher).generateVoice({
+      text: "Xin chào",
+      voice: "coral",
+      style: "Tự nhiên",
+      targetDurationSeconds: 15,
+    });
+
+    await expect(request).rejects.toMatchObject({ status: 502, code: "invalid_voice_response" });
+  });
 });
