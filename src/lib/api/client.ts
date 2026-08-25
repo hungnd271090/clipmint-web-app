@@ -67,6 +67,10 @@ export function createApiClient(
         signal: AbortSignal.timeout(65_000),
       });
       if (!response.ok) throw await parseErrorResponse(response);
+      const contentType = response.headers.get("Content-Type")?.toLowerCase() ?? "";
+      if (!contentType.startsWith("audio/")) {
+        throw new ApiError("API giọng đọc không trả về dữ liệu audio hợp lệ.", 502, "invalid_voice_response");
+      }
       return response.blob();
     },
   };
