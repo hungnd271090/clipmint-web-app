@@ -15,6 +15,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/products/enrich": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Safely retrieves JSON-LD Product or Open Graph metadata. All returned fields are editable claims and must be confirmed by the user. */
+        post: operations["enrichProduct"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/products/analyze": {
         parameters: {
             query?: never;
@@ -84,6 +101,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ProductEnrichRequest: {
+            productUrl: string;
+        };
+        ProductEnrichResponse: {
+            productUrl: string;
+            productName: string;
+            brand: string;
+            features: string[];
+            imageUrl: string;
+            sources: ("json-ld" | "open-graph" | "html-title")[];
+            warnings: string[];
+        };
         Frame: {
             timestampSeconds: number;
             /** @enum {string} */
@@ -213,6 +242,15 @@ export interface components {
                 "application/json": components["schemas"]["APIError"];
             };
         };
+        /** @description The page could not be safely retrieved or did not expose usable product metadata */
+        ProductEnrichmentFailed: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["APIError"];
+            };
+        };
         /** @description Internal error */
         InternalError: {
             headers: {
@@ -252,6 +290,34 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    enrichProduct: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductEnrichRequest"];
+            };
+        };
+        responses: {
+            /** @description Editable product metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductEnrichResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            422: components["responses"]["ProductEnrichmentFailed"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
         };
     };
     analyzeProduct: {

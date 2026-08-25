@@ -16,6 +16,19 @@ describe("API error handling", () => {
 });
 
 describe("API request transport", () => {
+  it("calls the product enrichment endpoint", async () => {
+    let requestedURL = "";
+    const fetcher: typeof fetch = async (input) => {
+      requestedURL = String(input);
+      return new Response(JSON.stringify({ productUrl: "https://shop.example/p/1", productName: "Demo", brand: "", features: [], imageUrl: "", sources: ["open-graph"], warnings: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+
+    const result = await createApiClient("https://api.example.com/", fetcher).enrichProduct({ productUrl: "https://shop.example/p/1" });
+
+    expect(requestedURL).toBe("https://api.example.com/api/v1/products/enrich");
+    expect(result.productName).toBe("Demo");
+  });
+
   it("removes trailing slashes from the API base URL", async () => {
     let requestedURL = "";
     const fetcher: typeof fetch = async (input) => {
