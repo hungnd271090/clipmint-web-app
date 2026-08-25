@@ -1,5 +1,5 @@
 import type { VideoPlan } from "@/lib/api/client";
-import { assertVoiceBlob } from "@/features/video-rendering/voice";
+import { assertAudibleVoiceBlob } from "@/features/video-rendering/voice";
 
 type WorkerResponse =
   | { type: "progress"; progress: number; stage: string }
@@ -13,7 +13,7 @@ export async function renderVideo(
   subtitleStyle: string,
   onProgress: (progress: number, stage: string) => void,
 ): Promise<Blob> {
-  assertVoiceBlob(voice);
+  await assertAudibleVoiceBlob(voice);
   const worker = new Worker(new URL("../../workers/video-render.worker.ts", import.meta.url), { type: "module" });
   const sourceBuffer = await source.arrayBuffer();
   const voiceBuffer = await voice.arrayBuffer();
