@@ -2,6 +2,7 @@
 
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toBlobURL } from "@ffmpeg/util";
+import { buildRenderCommand } from "@/features/video-rendering/command";
 import type { VideoPlan } from "@/lib/api/client";
 
 type RenderMessage = { sourceBuffer: ArrayBuffer; sourceName: string; voiceBuffer: ArrayBuffer; voiceType: string; plan: VideoPlan; subtitleStyle: string };
@@ -23,17 +24,11 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
     await ffmpeg.writeFile(`voice.${voiceExt}`, new Uint8Array(voiceBuffer));
     await ffmpeg.writeFile("subtitles.ass", new TextEncoder().encode(toASS(plan, subtitleStyle)));
 
-    const trims = plan.scenes.map((scene, index) => `[0:v]trim=start=${scene.sourceStartSeconds}:end=${scene.sourceEndSeconds},setpts=PTS-STARTPTS[v${index}]`).join(";");
-    const streams = plan.scenes.map((_, index) => `[v${index}]`).join("");
-    const filter = `${trims};${streams}concat=n=${plan.scenes.length}:v=1:a=0,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,subtitles=subtitles.ass[outv]`;
-    await ffmpeg.exec([
-      "-i", `source.${sourceExt}`, "-i", `voice.${voiceExt}`,
-      "-filter_complex", filter,
-      "-map", "[outv]", "-map", "1:a:0",
-      "-t", String(plan.durationSeconds),
-      "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-      "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart", "output.mp4",
-    ]);
+    await ffmpeg.exec(buildRenderCommand({
+      sourcePath: `source.${sourceExt}`,
+      voicePath: `voice.${voiceExt}`,
+      plan,
+    }));
     const output = await ffmpeg.readFile("output.mp4");
     if (typeof output === "string") throw new Error("FFmpeg trả về dữ liệu không hợp lệ.");
     const buffer = output.buffer.slice(output.byteOffset, output.byteOffset + output.byteLength) as ArrayBuffer;
@@ -73,4 +68,3 @@ function assTime(seconds: number): string {
 function escapeASS(value: string): string { return value.replace(/\\/g, "\\\\").replace(/[{}]/g, "").replace(/\n/g, "\\N"); }
 
 export {};
-
