@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { HookSelector } from "@/components/hook-selector/HookSelector";
 import { ProcessingProgress } from "@/components/processing-progress/ProcessingProgress";
-import { ProductForm } from "@/components/product-form/ProductForm";
+import { ProductForm, type EnrichmentState } from "@/components/product-form/ProductForm";
 import { VideoConfig } from "@/components/video-config/VideoConfig";
 import { VideoResults } from "@/components/video-results/VideoResults";
 import { VideoUpload } from "@/components/video-upload/VideoUpload";
@@ -14,17 +14,23 @@ import { validateEditPlan } from "@/lib/edit-plan";
 import { outputFilename } from "@/lib/filename";
 import { chooseOutputDirectory, saveBlob } from "@/lib/filesystem/save";
 import { toggleHookSelection, validateVideoConfiguration } from "@/lib/hooks";
+import { normalizedProductURL } from "@/lib/product-url";
 import { readVideoMeta } from "@/lib/video";
 import type { DirectoryHandleLike, ExtractedFrame, ProductFormData, RenderResult, VideoConfiguration, VideoMeta } from "@/types";
 
 const initialForm: ProductFormData = { productName: "", brand: "", productUrl: "", featuresText: "" };
 const initialConfig: VideoConfiguration = { count: 1, duration: 15, voice: "coral", voiceStyle: "Tự nhiên như một người dùng đang review sản phẩm", subtitleStyle: "mint" };
+const initialEnrichment: EnrichmentState = { status: "idle", message: "" };
 
 export function ClipMintApp() {
   const [file, setFile] = useState<File | null>(null);
   const [meta, setMeta] = useState<VideoMeta | null>(null);
   const [previewURL, setPreviewURL] = useState("");
   const [form, setForm] = useState(initialForm);
+  const formRef = useRef(form);
+  const [enrichment, setEnrichment] = useState(initialEnrichment);
+  const [enrichmentRetry, setEnrichmentRetry] = useState(0);
+  const enrichmentRequest = useRef(0);
   const [frames, setFrames] = useState<ExtractedFrame[]>([]);
   const [analysis, setAnalysis] = useState<ProductAnalysis | null>(null);
   const [hooks, setHooks] = useState<Hook[]>([]);
@@ -38,7 +44,57 @@ export function ClipMintApp() {
   const [error, setError] = useState("");
 
   useEffect(() => () => { if (previewURL) URL.revokeObjectURL(previewURL); }, [previewURL]);
+  useEffect(() => { formRef.current = form; }, [form]);
+  useEffect(() => {
+    const rawURL = form.productUrl.trim();
+    const requestID = ++enrichmentRequest.current;
+    if (!rawURL) return;
+    const productURL = normalizedProductURL(rawURL);
+    if (!productURL) return;
+
+    const baseline = formRef.current;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setEnrichment({ status: "loading", message: "Đang tải thông tin sản phẩm từ link…" });
+      try {
+        const metadata = await api.enrichProduct({ productUrl: productURL }, controller.signal);
+        if (requestID !== enrichmentRequest.current) return;
+        setForm((current) => {
+          if (current.productUrl.trim() !== rawURL) return current;
+          return {
+            ...current,
+            productName: current.productName === baseline.productName && metadata.productName ? metadata.productName : current.productName,
+            brand: current.brand === baseline.brand && metadata.brand ? metadata.brand : current.brand,
+            featuresText: current.featuresText === baseline.featuresText && metadata.features.length ? metadata.features.join("\n") : current.featuresText,
+          };
+        });
+        const warning = metadata.warnings[0];
+        setEnrichment({
+          status: "success",
+          message: warning ? `Đã tự điền thông tin. ${warning}` : "Đã tự điền thông tin từ trang sản phẩm. Hãy kiểm tra và chỉnh sửa nếu cần.",
+        });
+      } catch (reason) {
+        if (controller.signal.aborted || requestID !== enrichmentRequest.current) return;
+        setEnrichment({ status: "error", message: `${message(reason)} Bạn vẫn có thể nhập các trường bên dưới thủ công.` });
+      }
+    }, 700);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [form.productUrl, enrichmentRetry]);
   const selectedHooks = useMemo(() => selected.map((id) => hooks.find((hook) => hook.id === id)).filter((hook): hook is Hook => Boolean(hook)), [hooks, selected]);
+
+  function updateForm(next: ProductFormData) {
+    if (next.productUrl !== form.productUrl) {
+      const productURL = next.productUrl.trim();
+      if (!productURL) setEnrichment(initialEnrichment);
+      else if (!normalizedProductURL(productURL)) setEnrichment({ status: "invalid", message: "Link phải là địa chỉ HTTP hoặc HTTPS hợp lệ." });
+      else setEnrichment({ status: "loading", message: "Đang chuẩn bị tải thông tin sản phẩm…" });
+    }
+    setForm(next);
+  }
 
   async function selectVideo(next: File) {
     const nextMeta = await readVideoMeta(next);
@@ -131,7 +187,7 @@ export function ClipMintApp() {
         <div className="main-column">
           {error && <div className="error-banner"><span>!</span><p>{error}</p><button onClick={() => setError("")} aria-label="Đóng">×</button></div>}
           <VideoUpload file={file} meta={meta} previewURL={previewURL} onSelect={selectVideo}/>
-          <ProductForm value={form} onChange={setForm} onAnalyze={analyze} disabled={!file || processing}/>
+          <ProductForm value={form} enrichment={enrichment} onChange={updateForm} onRetryEnrichment={() => setEnrichmentRetry((value) => value + 1)} onAnalyze={analyze} disabled={!file || processing}/>
           <HookSelector hooks={hooks} selected={selected} onToggle={(id) => setSelected((current) => toggleHookSelection(current, id))}/>
           {hooks.length > 0 && <VideoConfig value={config} onChange={setConfig} directory={directory} onChooseDirectory={() => void chooseDirectory()} onGenerate={() => void generateAll()} disabled={processing}/>} 
           <ProcessingProgress active={processing} stage={stage} progress={progress}/>
@@ -154,4 +210,3 @@ function message(reason: unknown): string {
   if (reason instanceof ApiError) return `${reason.message}${reason.requestId ? ` · Mã yêu cầu: ${reason.requestId}` : ""}`;
   return reason instanceof Error ? reason.message : "Đã có lỗi xảy ra. Vui lòng thử lại.";
 }
-

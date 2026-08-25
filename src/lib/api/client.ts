@@ -2,6 +2,8 @@ import type { components } from "./schema";
 
 export type ProductAnalyzeRequest = components["schemas"]["ProductAnalyzeRequest"];
 export type ProductAnalysis = components["schemas"]["ProductAnalysis"];
+export type ProductEnrichRequest = components["schemas"]["ProductEnrichRequest"];
+export type ProductEnrichResponse = components["schemas"]["ProductEnrichResponse"];
 export type HookGenerateRequest = components["schemas"]["HookGenerateRequest"];
 export type HookGenerateResponse = components["schemas"]["HookGenerateResponse"];
 export type Hook = components["schemas"]["Hook"];
@@ -40,7 +42,7 @@ export function createApiClient(
 ) {
   const normalizedBaseURL = baseURL.replace(/\/+$/, "");
 
-  async function json<T>(path: string, body: unknown): Promise<T> {
+  async function json<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
     const payload = JSON.stringify(body);
     if (new TextEncoder().encode(payload).byteLength > MAX_JSON_REQUEST_BYTES) {
       throw new ApiError("Dữ liệu hình ảnh quá lớn. Hãy chọn video có độ phân giải thấp hơn.", 413, "request_too_large");
@@ -49,13 +51,14 @@ export function createApiClient(
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: payload,
-      signal: AbortSignal.timeout(65_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(65_000)]) : AbortSignal.timeout(65_000),
     });
     if (!response.ok) throw await parseErrorResponse(response);
     return response.json() as Promise<T>;
   }
 
   return {
+    enrichProduct: (body: ProductEnrichRequest, signal?: AbortSignal) => json<ProductEnrichResponse>("/api/v1/products/enrich", body, signal),
     analyzeProduct: (body: ProductAnalyzeRequest) => json<ProductAnalysis>("/api/v1/products/analyze", body),
     generateHooks: (body: HookGenerateRequest) => json<HookGenerateResponse>("/api/v1/hooks/generate", body),
     generateVideoPlan: (body: VideoPlanGenerateRequest) => json<VideoPlan>("/api/v1/video-plans/generate", body),
