@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, parseErrorResponse } from "./client";
+import { ApiError, createApiClient, parseErrorResponse } from "./client";
 
 describe("API error handling", () => {
   it("keeps the backend request ID", async () => {
@@ -15,3 +15,35 @@ describe("API error handling", () => {
   });
 });
 
+describe("API request transport", () => {
+  it("removes trailing slashes from the API base URL", async () => {
+    let requestedURL = "";
+    const fetcher: typeof fetch = async (input) => {
+      requestedURL = String(input);
+      return new Response(JSON.stringify({ hooks: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+    await createApiClient("https://api.example.com///", fetcher).generateHooks({
+      productName: "Demo",
+      brand: "",
+      analysis: { summary: "Demo", targetAudience: [], useCases: [], verifiedFacts: [], userProvidedClaims: [], warnings: [], relevantScenes: [] },
+    });
+    expect(requestedURL).toBe("https://api.example.com/api/v1/hooks/generate");
+  });
+
+  it("rejects an oversized JSON request before sending it", async () => {
+    let called = false;
+    const fetcher: typeof fetch = async () => {
+      called = true;
+      return new Response("{}", { status: 200 });
+    };
+    const request = createApiClient("https://api.example.com", fetcher).analyzeProduct({
+      productName: "Demo",
+      brand: "",
+      productUrl: "",
+      features: [],
+      frames: [{ timestampSeconds: 1, mimeType: "image/webp", dataBase64: "a".repeat(3_500_000) }],
+    });
+    await expect(request).rejects.toMatchObject({ status: 413, code: "request_too_large" });
+    expect(called).toBe(false);
+  });
+});

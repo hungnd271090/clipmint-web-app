@@ -1,7 +1,12 @@
 import type { ExtractedFrame } from "@/types";
 
-const FRAME_COUNT = 24;
-const MAX_FRAME_WIDTH = 720;
+export const MAX_FRAME_COUNT = 8;
+export const MAX_FRAME_BINARY_BYTES = 180_000;
+export const MAX_TOTAL_FRAME_BINARY_BYTES = 1_500_000;
+
+const MAX_FRAME_WIDTH = 480;
+const FRAME_WIDTH_STEPS = [MAX_FRAME_WIDTH, 400, 320] as const;
+const QUALITY_STEPS = [0.62, 0.5, 0.4] as const;
 
 export async function extractRepresentativeFrames(file: File, duration: number): Promise<ExtractedFrame[]> {
   const videoURL = URL.createObjectURL(file);
@@ -11,20 +16,17 @@ export async function extractRepresentativeFrames(file: File, duration: number):
   video.src = videoURL;
   try {
     await event(video, "loadeddata");
-    const count = Math.min(FRAME_COUNT, Math.max(6, Math.ceil(duration / 5)));
-    const timestamps = Array.from({ length: count }, (_, index) => Math.min(duration - 0.05, ((index + 0.5) / count) * duration));
-    const scale = Math.min(1, MAX_FRAME_WIDTH / video.videoWidth);
+    const timestamps = representativeTimestamps(duration);
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(2, Math.round(video.videoWidth * scale));
-    canvas.height = Math.max(2, Math.round(video.videoHeight * scale));
-    const context = canvas.getContext("2d", { alpha: false });
-    if (!context) throw new Error("Trình duyệt không hỗ trợ Canvas 2D.");
-
     const frames: ExtractedFrame[] = [];
+    let totalBytes = 0;
     for (const timestamp of timestamps) {
       await seek(video, timestamp);
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const blob = await canvasBlob(canvas, "image/webp", 0.72);
+      const blob = await compressFrame(video, canvas);
+      if (totalBytes + blob.size > MAX_TOTAL_FRAME_BINARY_BYTES) {
+        throw new Error("Các frame vẫn quá lớn sau khi nén. Hãy dùng video có độ phân giải thấp hơn.");
+      }
+      totalBytes += blob.size;
       frames.push({ timestampSeconds: Number(timestamp.toFixed(2)), mimeType: "image/webp", dataBase64: await blobToBase64(blob) });
     }
     return frames;
@@ -34,6 +36,34 @@ export async function extractRepresentativeFrames(file: File, duration: number):
     video.load();
     URL.revokeObjectURL(videoURL);
   }
+}
+
+export function representativeTimestamps(duration: number): number[] {
+  const count = Math.min(MAX_FRAME_COUNT, Math.max(4, Math.ceil(duration / 5)));
+  return Array.from(
+    { length: count },
+    (_, index) => Math.max(0, Math.min(duration - 0.05, ((index + 0.5) / count) * duration)),
+  );
+}
+
+async function compressFrame(video: HTMLVideoElement, canvas: HTMLCanvasElement): Promise<Blob> {
+  let smallest: Blob | null = null;
+  for (const targetWidth of FRAME_WIDTH_STEPS) {
+    const scale = Math.min(1, targetWidth / video.videoWidth);
+    canvas.width = Math.max(2, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(2, Math.round(video.videoHeight * scale));
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("Trình duyệt không hỗ trợ Canvas 2D.");
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    for (const quality of QUALITY_STEPS) {
+      const blob = await canvasBlob(canvas, "image/webp", quality);
+      if (blob.type !== "image/webp") throw new Error("Trình duyệt không hỗ trợ nén WebP.");
+      if (!smallest || blob.size < smallest.size) smallest = blob;
+      if (blob.size <= MAX_FRAME_BINARY_BYTES) return blob;
+    }
+  }
+  throw new Error(`Không thể nén frame xuống dưới ${Math.round(MAX_FRAME_BINARY_BYTES / 1000)} KB (nhỏ nhất ${Math.round((smallest?.size ?? 0) / 1000)} KB).`);
 }
 
 function event(target: HTMLVideoElement, name: "loadeddata"): Promise<void> {
@@ -64,4 +94,3 @@ async function blobToBase64(blob: Blob): Promise<string> {
   for (let index = 0; index < bytes.length; index += chunk) binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
   return btoa(binary);
 }
-

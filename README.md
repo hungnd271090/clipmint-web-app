@@ -2,7 +2,7 @@
 
 Vietnamese Next.js interface for the ClipMint AI MVP. It turns one local raw product video into up to three 15–30 second vertical affiliate videos.
 
-The full raw video never leaves the browser. Only a maximum of 24 resized, compressed representative WebP frames are sent to the stateless backend for analysis. Scene cutting, voice mixing, subtitle burn-in, 1080 × 1920 conversion, MP4 encoding, preview, and saving run locally with `ffmpeg.wasm` in a Web Worker.
+The full raw video never leaves the browser. Only a maximum of 8 adaptively compressed representative WebP frames are sent to the stateless backend for analysis. Scene cutting, voice mixing, subtitle burn-in, 1080 × 1920 conversion, MP4 encoding, preview, and saving run locally with `ffmpeg.wasm` in a Web Worker.
 
 ## Requirements
 
@@ -75,7 +75,7 @@ npm run generate:api
 ## Local video privacy
 
 - The browser reads the selected video through a local object URL.
-- Canvas extracts up to 24 representative frames at a maximum width of 720 px.
+- Canvas extracts up to 8 representative frames at a maximum width of 480 px. Every frame is adaptively compressed to at most 180 KB and the total decoded image budget is 1.5 MB, keeping the Base64 JSON request safely below Vercel's function payload limit.
 - The complete source file is passed only to the local render worker.
 - The backend does not receive or store the complete raw video.
 - Generated Blob URLs remain local to the current tab until saved or downloaded.
@@ -85,4 +85,3 @@ npm run generate:api
 Included: local upload/preview, metadata validation, frame extraction, AI analysis and hooks, one-to-three hook selection, edit-plan validation, TTS, Web Worker rendering, subtitles/overlays, preview, save/download, and regenerate.
 
 Not included: accounts, database, payment, cloud storage, background queues, social posting, voice cloning, AI avatars, or authenticated marketplace scraping.
-
