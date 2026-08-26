@@ -20,7 +20,7 @@ describe("API request transport", () => {
     let requestedURL = "";
     const fetcher: typeof fetch = async (input) => {
       requestedURL = String(input);
-      return new Response(JSON.stringify({ productUrl: "https://shop.example/p/1", productName: "Demo", brand: "", features: [], imageUrl: "", sources: ["open-graph"], warnings: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ productUrl: "https://shop.example/p/1", productName: "Demo", brand: "", features: [], imageUrl: "", sources: ["open-graph"], sourceUrls: ["https://shop.example/p/1"], warnings: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
     const result = await createApiClient("https://api.example.com/", fetcher).enrichProduct({ productUrl: "https://shop.example/p/1" });

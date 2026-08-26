@@ -110,7 +110,8 @@ export interface components {
             brand: string;
             features: string[];
             imageUrl: string;
-            sources: ("json-ld" | "open-graph" | "html-title")[];
+            sources: ("json-ld" | "open-graph" | "html-title" | "web-search" | "url-slug")[];
+            sourceUrls: string[];
             warnings: string[];
         };
         Frame: {
