@@ -20,7 +20,7 @@ describe("API request transport", () => {
     let requestedURL = "";
     const fetcher: typeof fetch = async (input) => {
       requestedURL = String(input);
-      return new Response(JSON.stringify({ productUrl: "https://shop.example/p/1", resolvedUrl: "https://shop.example/p/1", contentType: "product", productName: "Demo", brand: "", features: [], referenceTitle: "", referenceAuthor: "", imageUrl: "", sources: ["open-graph"], sourceUrls: ["https://shop.example/p/1"], warnings: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ productUrl: "https://shop.example/p/1", resolvedUrl: "https://shop.example/p/1", contentType: "product", productName: "Demo", brand: "", features: [], referenceTitle: "", referenceAuthor: "", imageUrl: "", imageUrls: [], sources: ["open-graph"], sourceUrls: ["https://shop.example/p/1"], warnings: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
     };
 
     const result = await createApiClient("https://api.example.com/", fetcher).enrichProduct({ productUrl: "https://shop.example/p/1" });
@@ -50,9 +50,12 @@ describe("API request transport", () => {
       return new Response("{}", { status: 200 });
     };
     const request = createApiClient("https://api.example.com", fetcher).analyzeProduct({
+      analysisMode: "video",
       productName: "Demo",
       brand: "",
       productUrl: "",
+      referenceTitle: "",
+      referenceAuthor: "",
       features: [],
       frames: [{ timestampSeconds: 1, mimeType: "image/webp", dataBase64: "a".repeat(3_500_000) }],
     });

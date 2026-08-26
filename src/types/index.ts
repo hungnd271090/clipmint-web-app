@@ -20,6 +20,15 @@ export type ProductFormData = {
   featuresText: string;
 };
 
+export type ProductAsset = {
+  id: string;
+  name: string;
+  source: "url" | "upload";
+  previewUrl: string;
+  remoteUrl?: string;
+  file?: File;
+};
+
 export type VideoConfiguration = {
   count: 1 | 2 | 3;
   duration: 15 | 20 | 30;
@@ -44,4 +53,3 @@ export type DirectoryHandleLike = {
     createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }>;
   }>;
 };
-

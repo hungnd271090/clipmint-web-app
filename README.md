@@ -1,8 +1,8 @@
 # ClipMint Web App
 
-Vietnamese Next.js interface for the ClipMint AI MVP. It turns one local raw product video into up to three 15–30 second vertical affiliate videos.
+Vietnamese Next.js interface for the ClipMint AI MVP. It turns either a local raw product video or editable product images from a URL/upload into up to three 15–30 second vertical affiliate videos.
 
-The full raw video never leaves the browser. Only a maximum of 8 adaptively compressed representative WebP frames are sent to the stateless backend for analysis. Scene cutting, voice mixing, subtitle burn-in, 1080 × 1920 conversion, MP4 encoding, preview, and saving run locally with `ffmpeg.wasm` in a Web Worker.
+The full raw video and locally uploaded images never leave the browser. Only a maximum of 8 adaptively compressed representative WebP frames are sent to the stateless backend for video analysis. In URL-only mode, hooks are based on editable product data and the backend safely proxies selected remote product images to avoid CORS failures. Scene cutting or image motion, voice mixing, subtitle burn-in, 1080 × 1920 conversion, MP4 encoding, preview, and saving run locally with `ffmpeg.wasm` in a Web Worker.
 
 ## Requirements
 
@@ -69,6 +69,7 @@ npm run generate:api
 - File System Access API is best supported in Chromium. Other browsers use a normal MP4 download fallback.
 - FFmpeg WebAssembly is CPU- and memory-intensive. 4K input is accepted only with a warning and can be slow; 1080p vertical video is recommended.
 - Rendering happens sequentially to control memory use. Closing or refreshing the tab cancels in-progress work.
+- URL-only rendering requires at least one usable product image. Users can remove or replace every URL-derived image and upload up to ten local JPEG, PNG, or WebP images.
 - H.264/AAC support depends on the bundled FFmpeg core and browser WebAssembly support.
 - Cross-origin isolation headers are configured for WebAssembly. A hosting platform must preserve these headers.
 
@@ -82,6 +83,6 @@ npm run generate:api
 
 ## MVP scope
 
-Included: local upload/preview, metadata validation, frame extraction, AI analysis and hooks, one-to-three hook selection, edit-plan validation, TTS, Web Worker rendering, subtitles/overlays, preview, save/download, and regenerate.
+Included: local video or product-image input, editable URL enrichment, frame or product-only analysis, AI hooks, one-to-three hook selection, edit/motion-plan validation, TTS, Web Worker rendering, subtitles/overlays, preview, save/download, and regenerate.
 
 Not included: accounts, database, payment, cloud storage, background queues, social posting, voice cloning, AI avatars, or authenticated marketplace scraping.

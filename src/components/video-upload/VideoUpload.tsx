@@ -21,7 +21,7 @@ export function VideoUpload({ file, meta, previewURL, onSelect }: Props) {
 
   if (file && meta) {
     return <section className="panel upload-complete">
-      <div className="section-head"><span className="step">1</span><div><h2>Video gốc</h2><p>Video chỉ được xử lý trên thiết bị của bạn.</p></div><span className="status-chip">Đã sẵn sàng</span></div>
+      <div className="section-head"><span className="step">1</span><div><h2>Video gốc <small>(không bắt buộc)</small></h2><p>Video chỉ được xử lý trên thiết bị của bạn.</p></div><span className="status-chip">Đã sẵn sàng</span></div>
       <div className="video-summary">
         <video src={previewURL} controls playsInline preload="metadata" />
         <div className="video-details">
@@ -40,7 +40,7 @@ export function VideoUpload({ file, meta, previewURL, onSelect }: Props) {
   }
 
   return <section className="panel">
-    <div className="section-head"><span className="step">1</span><div><h2>Tải video gốc</h2><p>MP4 hoặc MOV · tối đa 3 phút · tối đa 300 MB</p></div></div>
+    <div className="section-head"><span className="step">1</span><div><h2>Tải video gốc <small>(không bắt buộc)</small></h2><p>MP4 hoặc MOV · hoặc bỏ qua để tạo video từ ảnh sản phẩm</p></div></div>
     <div
       className={`dropzone ${dragging ? "dragging" : ""}`}
       onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
@@ -50,10 +50,9 @@ export function VideoUpload({ file, meta, previewURL, onSelect }: Props) {
       role="button" tabIndex={0}
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") input.current?.click(); }}
     >
-      <div className="upload-icon">↥</div><strong>Kéo thả video vào đây</strong><span>hoặc bấm để chọn tệp trên máy</span><small>Khuyến nghị video dọc 9:16, độ phân giải 1080p</small>
+      <div className="upload-icon">↥</div><strong>Kéo thả video vào đây</strong><span>hoặc bấm để chọn tệp trên máy</span><small>Không có video? Dán link sản phẩm ở bước tiếp theo.</small>
     </div>
     {error && <p className="form-error">{error}</p>}
     <input ref={input} hidden type="file" accept="video/mp4,video/quicktime,.mp4,.mov" onChange={(event) => void accept(event.target.files?.[0])} />
   </section>;
 }
-
