@@ -48,6 +48,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assets/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Safely proxies a remote JPEG, PNG, or WebP product image for browser rendering. */
+        get: operations["fetchProductImage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hooks/generate": {
         parameters: {
             query?: never;
@@ -97,6 +114,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/motion-video-plans/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["generateMotionVideoPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -115,6 +148,7 @@ export interface components {
             referenceTitle: string;
             referenceAuthor: string;
             imageUrl: string;
+            imageUrls: string[];
             sources: ("json-ld" | "open-graph" | "html-title" | "web-search" | "url-slug" | "tiktok-oembed" | "url-type")[];
             sourceUrls: string[];
             warnings: string[];
@@ -126,11 +160,13 @@ export interface components {
             dataBase64: string;
         };
         ProductAnalyzeRequest: {
+            /** @enum {string} */
+            analysisMode: "video" | "product-only";
             productName: string;
             brand: string;
             productUrl: string;
-            referenceTitle?: string;
-            referenceAuthor?: string;
+            referenceTitle: string;
+            referenceAuthor: string;
             features: string[];
             frames: components["schemas"]["Frame"][];
         };
@@ -198,6 +234,33 @@ export interface components {
             productAnalysis: components["schemas"]["ProductAnalysis"];
             availableFrameTimestamps: number[];
             sourceDurationSeconds: number;
+            /** @enum {integer} */
+            requestedDurationSeconds: 15 | 20 | 30;
+            voiceStyle: string;
+            subtitleStyle: string;
+        };
+        MotionScene: {
+            assetIndex: number;
+            outputStartSeconds: number;
+            outputEndSeconds: number;
+            /** @enum {string} */
+            motion: "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "static";
+            purpose: string;
+        };
+        MotionVideoPlan: {
+            /** @constant */
+            version: 1;
+            /** @enum {integer} */
+            durationSeconds: 15 | 20 | 30;
+            voiceScript: string;
+            scenes: components["schemas"]["MotionScene"][];
+            subtitles: components["schemas"]["Subtitle"][];
+            overlays: components["schemas"]["Overlay"][];
+        };
+        MotionVideoPlanGenerateRequest: {
+            selectedHook: components["schemas"]["Hook"];
+            productAnalysis: components["schemas"]["ProductAnalysis"];
+            assetCount: number;
             /** @enum {integer} */
             requestedDurationSeconds: 15 | 20 | 30;
             voiceStyle: string;
@@ -356,6 +419,34 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    fetchProductImage: {
+        parameters: {
+            query: {
+                url: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Product image */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            422: components["responses"]["ProductEnrichmentFailed"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     generateHooks: {
         parameters: {
             query?: never;
@@ -432,6 +523,33 @@ export interface operations {
                 content: {
                     "audio/mpeg": string;
                     "audio/wav": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    generateMotionVideoPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MotionVideoPlanGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Validated motion-video plan for product images */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MotionVideoPlan"];
                 };
             };
             400: components["responses"]["BadRequest"];

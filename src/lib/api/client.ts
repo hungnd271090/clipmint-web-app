@@ -9,6 +9,8 @@ export type HookGenerateResponse = components["schemas"]["HookGenerateResponse"]
 export type Hook = components["schemas"]["Hook"];
 export type VideoPlanGenerateRequest = components["schemas"]["VideoPlanGenerateRequest"];
 export type VideoPlan = components["schemas"]["VideoPlan"];
+export type MotionVideoPlanGenerateRequest = components["schemas"]["MotionVideoPlanGenerateRequest"];
+export type MotionVideoPlan = components["schemas"]["MotionVideoPlan"];
 export type VoiceGenerateRequest = components["schemas"]["VoiceGenerateRequest"];
 
 type ErrorEnvelope = { error?: { code?: string; message?: string; requestId?: string } };
@@ -62,6 +64,18 @@ export function createApiClient(
     analyzeProduct: (body: ProductAnalyzeRequest) => json<ProductAnalysis>("/api/v1/products/analyze", body),
     generateHooks: (body: HookGenerateRequest) => json<HookGenerateResponse>("/api/v1/hooks/generate", body),
     generateVideoPlan: (body: VideoPlanGenerateRequest) => json<VideoPlan>("/api/v1/video-plans/generate", body),
+    generateMotionVideoPlan: (body: MotionVideoPlanGenerateRequest) => json<MotionVideoPlan>("/api/v1/motion-video-plans/generate", body),
+    productImageURL: (remoteURL: string) => `${normalizedBaseURL}/api/v1/assets/image?url=${encodeURIComponent(remoteURL)}`,
+    fetchProductImage: async (remoteURL: string) => {
+      const response = await fetcher(`${normalizedBaseURL}/api/v1/assets/image?url=${encodeURIComponent(remoteURL)}`, {
+        headers: { Accept: "image/jpeg,image/png,image/webp" },
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok) throw await parseErrorResponse(response);
+      const contentType = response.headers.get("Content-Type")?.toLowerCase() ?? "";
+      if (!contentType.startsWith("image/")) throw new ApiError("API không trả về ảnh hợp lệ.", 502, "invalid_image_response");
+      return response.blob();
+    },
     generateVoice: async (body: VoiceGenerateRequest) => {
       const response = await fetcher(`${normalizedBaseURL}/api/v1/voices/generate`, {
         method: "POST",
