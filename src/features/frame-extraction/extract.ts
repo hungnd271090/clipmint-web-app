@@ -4,8 +4,7 @@ export const MAX_FRAME_COUNT = 8;
 export const MAX_FRAME_BINARY_BYTES = 180_000;
 export const MAX_TOTAL_FRAME_BINARY_BYTES = 1_500_000;
 
-const MAX_FRAME_WIDTH = 480;
-const FRAME_WIDTH_STEPS = [MAX_FRAME_WIDTH, 400, 320] as const;
+const FRAME_WIDTH_STEPS = [480, 400, 320] as const;
 const QUALITY_STEPS = [0.62, 0.5, 0.4] as const;
 
 export async function extractRepresentativeFrames(file: File, duration: number): Promise<ExtractedFrame[]> {
@@ -22,7 +21,7 @@ export async function extractRepresentativeFrames(file: File, duration: number):
     let totalBytes = 0;
     for (const timestamp of timestamps) {
       await seek(video, timestamp);
-      const blob = await compressFrame(video, canvas);
+      const blob = await compressImageSource(video, video.videoWidth, video.videoHeight, canvas);
       if (totalBytes + blob.size > MAX_TOTAL_FRAME_BINARY_BYTES) {
         throw new Error("Các frame vẫn quá lớn sau khi nén. Hãy dùng video có độ phân giải thấp hơn.");
       }
@@ -46,15 +45,15 @@ export function representativeTimestamps(duration: number): number[] {
   );
 }
 
-async function compressFrame(video: HTMLVideoElement, canvas: HTMLCanvasElement): Promise<Blob> {
+export async function compressImageSource(source: CanvasImageSource, sourceWidth: number, sourceHeight: number, canvas = document.createElement("canvas")): Promise<Blob> {
   let smallest: Blob | null = null;
   for (const targetWidth of FRAME_WIDTH_STEPS) {
-    const scale = Math.min(1, targetWidth / video.videoWidth);
-    canvas.width = Math.max(2, Math.round(video.videoWidth * scale));
-    canvas.height = Math.max(2, Math.round(video.videoHeight * scale));
+    const scale = Math.min(1, targetWidth / sourceWidth);
+    canvas.width = Math.max(2, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(2, Math.round(sourceHeight * scale));
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) throw new Error("Trình duyệt không hỗ trợ Canvas 2D.");
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    context.drawImage(source, 0, 0, canvas.width, canvas.height);
 
     for (const quality of QUALITY_STEPS) {
       const blob = await canvasBlob(canvas, "image/webp", quality);
@@ -87,7 +86,7 @@ function canvasBlob(canvas: HTMLCanvasElement, type: string, quality: number): P
   return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Không thể nén frame.")), type, quality));
 }
 
-async function blobToBase64(blob: Blob): Promise<string> {
+export async function blobToBase64(blob: Blob): Promise<string> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let binary = "";
   const chunk = 0x8000;
