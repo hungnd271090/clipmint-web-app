@@ -11,6 +11,8 @@ export type VideoPlanGenerateRequest = components["schemas"]["VideoPlanGenerateR
 export type VideoPlan = components["schemas"]["VideoPlan"];
 export type MotionVideoPlanGenerateRequest = components["schemas"]["MotionVideoPlanGenerateRequest"];
 export type MotionVideoPlan = components["schemas"]["MotionVideoPlan"];
+export type AIProductVideoGenerateRequest = components["schemas"]["AIProductVideoGenerateRequest"];
+export type AIVideoJob = components["schemas"]["AIVideoJob"];
 export type VoiceGenerateRequest = components["schemas"]["VoiceGenerateRequest"];
 
 type ErrorEnvelope = { error?: { code?: string; message?: string; requestId?: string } };
@@ -65,6 +67,25 @@ export function createApiClient(
     generateHooks: (body: HookGenerateRequest) => json<HookGenerateResponse>("/api/v1/hooks/generate", body),
     generateVideoPlan: (body: VideoPlanGenerateRequest) => json<VideoPlan>("/api/v1/video-plans/generate", body),
     generateMotionVideoPlan: (body: MotionVideoPlanGenerateRequest) => json<MotionVideoPlan>("/api/v1/motion-video-plans/generate", body),
+    createAIProductVideoJob: (body: AIProductVideoGenerateRequest) => json<AIVideoJob>("/api/v1/ai-video-jobs", body),
+    getAIProductVideoJob: async (id: string) => {
+      const response = await fetcher(`${normalizedBaseURL}/api/v1/ai-video-jobs/${encodeURIComponent(id)}`, {
+        headers: { Accept: "application/json" }, signal: AbortSignal.timeout(65_000),
+      });
+      if (!response.ok) throw await parseErrorResponse(response);
+      return response.json() as Promise<AIVideoJob>;
+    },
+    fetchGeneratedVideo: async (outputURL: string) => {
+      const parsed = new URL(outputURL);
+      if (parsed.protocol !== "https:") throw new ApiError("Link video AI không an toàn.", 502, "invalid_video_url");
+      const response = await fetcher(parsed.toString(), { headers: { Accept: "video/mp4,video/*" }, signal: AbortSignal.timeout(180_000) });
+      if (!response.ok) throw new ApiError(`Không tải được video AI (${response.status}).`, 502, "video_download_failed");
+      const length = Number(response.headers.get("Content-Length") ?? "0");
+      if (length > 300 * 1024 * 1024) throw new ApiError("Video AI vượt quá giới hạn 300 MB.", 413, "video_too_large");
+      const blob = await response.blob();
+      if (!blob.size || blob.size > 300 * 1024 * 1024) throw new ApiError("Video AI trống hoặc vượt quá giới hạn 300 MB.", 502, "invalid_video_response");
+      return blob;
+    },
     productImageURL: (remoteURL: string) => `${normalizedBaseURL}/api/v1/assets/image?url=${encodeURIComponent(remoteURL)}`,
     fetchProductImage: async (remoteURL: string) => {
       const response = await fetcher(`${normalizedBaseURL}/api/v1/assets/image?url=${encodeURIComponent(remoteURL)}`, {

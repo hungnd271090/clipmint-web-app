@@ -13,6 +13,7 @@ import { prepareProductAssetFrames } from "@/features/image-assets/prepare";
 import { renderMotionVideo } from "@/features/video-rendering/motion";
 import { renderVideo } from "@/features/video-rendering/render";
 import { api, ApiError, type Hook, type ProductAnalysis, type VideoPlan } from "@/lib/api/client";
+import { buildProductConcept, buildProductInfo, motionPlanForGeneratedVideo, waitForAIVideoJob } from "@/lib/ai-product-video";
 import { validateEditPlan } from "@/lib/edit-plan";
 import { outputFilename } from "@/lib/filename";
 import { chooseOutputDirectory, saveBlob } from "@/lib/filesystem/save";
@@ -22,7 +23,7 @@ import { readVideoMeta } from "@/lib/video";
 import type { DirectoryHandleLike, ExtractedFrame, ProductAsset, ProductFormData, RenderResult, VideoConfiguration, VideoMeta } from "@/types";
 
 const initialForm: ProductFormData = { productName: "", brand: "", productUrl: "", featuresText: "" };
-const initialConfig: VideoConfiguration = { count: 1, duration: 15, voice: "coral", voiceStyle: "Tự nhiên, tự tin như người bán đang giới thiệu sản phẩm của mình", subtitleStyle: "mint" };
+const initialConfig: VideoConfiguration = { count: 1, duration: 15, voice: "coral", voiceStyle: "Tự nhiên, tự tin như người bán đang giới thiệu sản phẩm của mình", subtitleStyle: "mint", renderMode: "smart-motion" };
 const initialEnrichment: EnrichmentState = { status: "idle", message: "" };
 
 export function ClipMintApp() {
@@ -229,11 +230,35 @@ export function ClipMintApp() {
         selectedHook: hook, productAnalysis: analysis, assetCount: assets.length,
         requestedDurationSeconds: config.duration, voiceStyle: config.voiceStyle, subtitleStyle: config.subtitleStyle,
       });
-      report(0.24, "Đang tạo giọng đọc AI");
-      const voice = await api.generateVoice({ text: plan.voiceScript, voice: config.voice, style: config.voiceStyle, targetDurationSeconds: config.duration });
-      report(0.38, "Đang tải ảnh và khởi động FFmpeg WebAssembly");
-      blob = await renderMotionVideo(assets, voice, plan, config.subtitleStyle, (value, label) => report(0.38 + value * 0.62, label));
-      duration = plan.durationSeconds;
+      if (config.renderMode === "ai-product") {
+        const productImages = frames.length === assets.length ? frames : await prepareProductAssetFrames(assets, api.fetchProductImage);
+        if (productImages !== frames) setFrames(productImages);
+        report(0.16, "Đang gửi ảnh nén để tạo AI Product Video");
+        const started = await api.createAIProductVideoJob({
+          productName: form.productName.trim(), productInfo: buildProductInfo(form.productName, analysis),
+          userConcept: buildProductConcept(plan), durationSeconds: 15, ratio: "720:1280", productImages,
+        });
+        const completed = await waitForAIVideoJob(started.id, api.getAIProductVideoJob, {
+          onUpdate: (job) => report(0.2 + Math.min(0.38, (job.progress ?? 0.15) * 0.38), job.status === "queued" ? "AI Product Video đang xếp hàng" : "AI Product Video đang tạo chuyển động"),
+        });
+        report(0.6, "Đang tải video AI về trình duyệt");
+        const generatedBlob = await api.fetchGeneratedVideo(completed.outputUrls[0]);
+        const generatedFile = new File([generatedBlob], "ai-product-video.mp4", { type: "video/mp4" });
+        const generatedMeta = await readVideoMeta(generatedFile);
+        const generatedPlan = motionPlanForGeneratedVideo(plan, generatedMeta.duration);
+        assertPlan(generatedPlan, config.duration, generatedMeta.duration);
+        report(0.66, "Đang tạo giọng đọc AI");
+        const voice = await api.generateVoice({ text: generatedPlan.voiceScript, voice: config.voice, style: config.voiceStyle, targetDurationSeconds: config.duration });
+        report(0.73, "Đang ghép voice và phụ đề trên trình duyệt");
+        blob = await renderVideo(generatedFile, voice, generatedPlan, config.subtitleStyle, (value, label) => report(0.73 + value * 0.27, label));
+        duration = generatedPlan.durationSeconds;
+      } else {
+        report(0.24, "Đang tạo giọng đọc AI");
+        const voice = await api.generateVoice({ text: plan.voiceScript, voice: config.voice, style: config.voiceStyle, targetDurationSeconds: config.duration });
+        report(0.38, "Đang tải ảnh và khởi động Smart Motion 2.5D");
+        blob = await renderMotionVideo(assets, voice, plan, config.subtitleStyle, (value, label) => report(0.38 + value * 0.62, label));
+        duration = plan.durationSeconds;
+      }
     }
     const filename = outputFilename(form.productName, index);
     return { id: `${hook.id}-${Date.now()}`, hookText: hook.text, duration, resolution: "1080 × 1920", filename, url: URL.createObjectURL(blob), blob };
@@ -273,13 +298,13 @@ export function ClipMintApp() {
           <ProductForm value={form} enrichment={enrichment} onChange={updateForm} onRetryEnrichment={() => setEnrichmentRetry((value) => value + 1)} onAnalyze={analyze} disabled={processing}/>
           <ImageAssets assets={assets} required={!file} disabled={processing} onAdd={addAssets} onReplace={replaceAsset} onRemove={removeAsset}/>
           <HookSelector hooks={hooks} selected={selected} onToggle={(id) => setSelected((current) => toggleHookSelection(current, id))}/>
-          {hooks.length > 0 && <VideoConfig value={config} onChange={setConfig} directory={directory} onChooseDirectory={() => void chooseDirectory()} onGenerate={() => void generateAll()} disabled={processing}/>}
+          {hooks.length > 0 && <VideoConfig value={config} imageModeAvailable={!file} onChange={setConfig} directory={directory} onChooseDirectory={() => void chooseDirectory()} onGenerate={() => void generateAll()} disabled={processing}/>}
           <ProcessingProgress active={processing} stage={stage} progress={progress}/>
           <VideoResults results={results} onSave={(result) => void save(result)} onRegenerate={(result) => void regenerate(result)} regenerating={processing}/>
         </div>
-        <aside id="privacy"><div className="privacy-card"><span>◉</span><h3>Dựng video ngay trên máy</h3><p>Video gốc và ảnh gốc được dựng trong trình duyệt. ClipMint chỉ gửi các frame/ảnh WebP đã nén cho AI để hiểu nội dung và ghép đúng cảnh.</p></div><div className="tips-card"><h3>Để video tốt hơn</h3><ul><li>Dùng 3–6 ảnh rõ nét</li><li>Có ảnh tổng thể và cận cảnh</li><li>Ưu tiên ảnh dọc hoặc vuông</li><li>Kiểm tra lại mọi thông tin AI điền</li></ul></div></aside>
+        <aside id="privacy"><div className="privacy-card"><span>◉</span><h3>Kiểm soát dữ liệu hình ảnh</h3><p>Video gốc và ảnh gốc luôn ở trình duyệt. Smart Motion dựng hoàn toàn local; khi bạn chọn AI Product Video, chỉ ảnh WebP đã nén được gửi tới Runway để tạo cảnh quay.</p></div><div className="tips-card"><h3>Để video tốt hơn</h3><ul><li>Dùng 3–6 ảnh rõ nét</li><li>Có ảnh tổng thể và cận cảnh</li><li>Ưu tiên ảnh dọc hoặc vuông</li><li>Kiểm tra lại mọi thông tin AI điền</li></ul></div></aside>
       </div>
-      <section className="how" id="how"><span>3 bước đơn giản</span><h2>Từ link hoặc video đến nội dung sẵn sàng đăng</h2><div><article><i>01</i><h3>Nhập nguồn</h3><p>Tải video hoặc dán link; thay và bổ sung ảnh nếu cần.</p></article><article><i>02</i><h3>Chọn ý tưởng</h3><p>AI phân tích thông tin sản phẩm và đề xuất nhiều hook.</p></article><article><i>03</i><h3>Dựng trên máy</h3><p>FFmpeg WebAssembly tạo chuyển động, ghép giọng đọc và phụ đề.</p></article></div></section>
+      <section className="how" id="how"><span>3 bước đơn giản</span><h2>Từ link hoặc video đến nội dung sẵn sàng đăng</h2><div><article><i>01</i><h3>Nhập nguồn</h3><p>Tải video hoặc dán link; thay và bổ sung ảnh nếu cần.</p></article><article><i>02</i><h3>Chọn ý tưởng</h3><p>AI phân tích thông tin sản phẩm và đề xuất nhiều hook.</p></article><article><i>03</i><h3>Chọn cách dựng</h3><p>Dùng Smart Motion local hoặc AI Product Video, sau đó ghép voice và phụ đề trên máy.</p></article></div></section>
     </main>
     <footer><a className="brand" href="#top"><span className="brand-mark">C</span><span>ClipMint AI</span></a><p>Video affiliate thông minh, riêng tư và dễ dùng.</p><small>© 2026 ClipMint AI · Giọng đọc trong video được tạo bởi AI.</small></footer>
   </>;

@@ -130,6 +130,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai-video-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Creates an asynchronous Runway Product Ad task. Audio is disabled so the browser can add the selected AI voice and subtitles locally. */
+        post: operations["createAIProductVideoJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai-video-jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Poll no more frequently than every five seconds until the task succeeds or fails. */
+        get: operations["getAIProductVideoJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -250,7 +284,7 @@ export interface components {
             outputStartSeconds: number;
             outputEndSeconds: number;
             /** @enum {string} */
-            motion: "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "static";
+            motion: "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "static" | "depth-zoom" | "parallax-left" | "parallax-right" | "light-sweep";
             purpose: string;
         };
         MotionVideoPlan: {
@@ -271,6 +305,24 @@ export interface components {
             requestedDurationSeconds: 15 | 20 | 30;
             voiceStyle: string;
             subtitleStyle: string;
+        };
+        AIProductVideoGenerateRequest: {
+            productName: string;
+            productInfo: string;
+            userConcept: string;
+            durationSeconds: number;
+            /** @enum {string} */
+            ratio: "720:1280" | "1080:1920";
+            productImages: components["schemas"]["Frame"][];
+        };
+        AIVideoJob: {
+            id: string;
+            /** @enum {string} */
+            status: "queued" | "running" | "succeeded" | "failed";
+            progress?: number;
+            outputUrls: string[];
+            failure?: string;
+            estimatedCostCredits?: number;
         };
         VoiceGenerateRequest: {
             text: string;
@@ -330,6 +382,24 @@ export interface components {
         };
         /** @description Internal error */
         InternalError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["APIError"];
+            };
+        };
+        /** @description The configured video generation provider failed */
+        UpstreamError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["APIError"];
+            };
+        };
+        /** @description AI Product Video is not configured on this deployment */
+        ProviderUnavailable: {
             headers: {
                 [name: string]: unknown;
             };
@@ -561,6 +631,61 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
+        };
+    };
+    createAIProductVideoJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIProductVideoGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description AI product video task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIVideoJob"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            413: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["UpstreamError"];
+            503: components["responses"]["ProviderUnavailable"];
+        };
+    };
+    getAIProductVideoJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current AI product video task state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIVideoJob"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["UpstreamError"];
+            503: components["responses"]["ProviderUnavailable"];
         };
     };
 }

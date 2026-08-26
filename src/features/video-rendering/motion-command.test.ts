@@ -7,8 +7,8 @@ const plan: MotionVideoPlan = {
   durationSeconds: 15,
   voiceScript: "Một video từ ảnh.",
   scenes: [
-    { assetIndex: 0, outputStartSeconds: 0, outputEndSeconds: 7.5, motion: "zoom-in", purpose: "hook" },
-    { assetIndex: 1, outputStartSeconds: 7.5, outputEndSeconds: 15, motion: "pan-right", purpose: "detail" },
+    { assetIndex: 0, outputStartSeconds: 0, outputEndSeconds: 7.5, motion: "depth-zoom", purpose: "hook" },
+    { assetIndex: 1, outputStartSeconds: 7.5, outputEndSeconds: 15, motion: "light-sweep", purpose: "detail" },
   ],
   subtitles: [],
   overlays: [],
@@ -25,6 +25,10 @@ describe("buildMotionRenderCommand", () => {
     expect(option(command, "-c:a")).toBe("aac");
     expect(option(command, "-movflags")).toBe("+faststart");
     expect(option(command, "-filter_complex")).toContain("zoompan");
+    expect(option(command, "-filter_complex")).toContain("gblur");
+    expect(option(command, "-filter_complex")).toContain("overlay");
+    expect(option(command, "-filter_complex")).toContain("drawbox");
+    expect(option(command, "-filter_complex")).toContain("xfade");
   });
 });
 
