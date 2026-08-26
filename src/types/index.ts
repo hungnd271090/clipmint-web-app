@@ -35,6 +35,7 @@ export type VideoConfiguration = {
   voice: "coral" | "marin" | "cedar" | "nova";
   voiceStyle: string;
   subtitleStyle: "mint" | "bold" | "minimal";
+  renderMode: "smart-motion" | "ai-product";
 };
 
 export type RenderResult = {
