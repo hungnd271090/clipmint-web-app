@@ -106,11 +106,17 @@ export interface components {
         };
         ProductEnrichResponse: {
             productUrl: string;
+            resolvedUrl: string;
+            /** @enum {string} */
+            contentType: "product" | "social-video" | "web-page";
             productName: string;
             brand: string;
             features: string[];
+            referenceTitle: string;
+            referenceAuthor: string;
             imageUrl: string;
-            sources: ("json-ld" | "open-graph" | "html-title")[];
+            sources: ("json-ld" | "open-graph" | "html-title" | "web-search" | "url-slug" | "tiktok-oembed" | "url-type")[];
+            sourceUrls: string[];
             warnings: string[];
         };
         Frame: {
@@ -123,6 +129,8 @@ export interface components {
             productName: string;
             brand: string;
             productUrl: string;
+            referenceTitle?: string;
+            referenceAuthor?: string;
             features: string[];
             frames: components["schemas"]["Frame"][];
         };

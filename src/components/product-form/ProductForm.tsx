@@ -5,6 +5,13 @@ import type { ProductFormData } from "@/types";
 export type EnrichmentState = {
   status: "idle" | "loading" | "success" | "error" | "invalid";
   message: string;
+  reference?: {
+    contentType: "social-video" | "web-page";
+    title: string;
+    author: string;
+    thumbnailUrl: string;
+    sourceUrl: string;
+  };
 };
 
 type Props = {
@@ -26,6 +33,20 @@ export function ProductForm({ value, disabled, enrichment, onChange, onRetryEnri
         {enrichment.status === "loading" && <i aria-hidden="true"/>}
         <span>{enrichment.message}</span>
         {enrichment.status === "error" && <button type="button" onClick={onRetryEnrichment}>Tải lại</button>}
+      </div>}
+      {enrichment.reference && <div className="link-reference">
+        {enrichment.reference.thumbnailUrl && <div
+          className="link-reference-thumb"
+          role="img"
+          aria-label="Ảnh xem trước"
+          style={{ backgroundImage: `url(${JSON.stringify(enrichment.reference.thumbnailUrl)})` }}
+        />}
+        <div>
+          <small>{enrichment.reference.contentType === "social-video" ? "Video TikTok tham khảo" : "Trang tham khảo"}</small>
+          <strong>{enrichment.reference.title || "Không đọc được tiêu đề"}</strong>
+          {enrichment.reference.author && <span>{enrichment.reference.author}</span>}
+          <a href={enrichment.reference.sourceUrl} target="_blank" rel="noreferrer">Mở nguồn ↗</a>
+        </div>
       </div>}
       <label><span>Tên sản phẩm <b>*</b></span><input placeholder="Ví dụ: Máy hút bụi mini cầm tay M1" {...field("productName")} /></label>
       <label><span>Thương hiệu <em>Không bắt buộc</em></span><input placeholder="Mint Home" {...field("brand")} /></label>

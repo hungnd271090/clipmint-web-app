@@ -61,6 +61,7 @@ export function ClipMintApp() {
         if (requestID !== enrichmentRequest.current) return;
         setForm((current) => {
           if (current.productUrl.trim() !== rawURL) return current;
+          if (metadata.contentType !== "product") return current;
           return {
             ...current,
             productName: current.productName === baseline.productName && metadata.productName ? metadata.productName : current.productName,
@@ -69,9 +70,17 @@ export function ClipMintApp() {
           };
         });
         const warning = metadata.warnings[0];
+        const reference = metadata.contentType === "social-video" || metadata.contentType === "web-page" ? {
+          contentType: metadata.contentType,
+          title: metadata.referenceTitle,
+          author: metadata.referenceAuthor,
+          thumbnailUrl: metadata.imageUrl,
+          sourceUrl: metadata.resolvedUrl || metadata.productUrl,
+        } : undefined;
         setEnrichment({
           status: "success",
-          message: warning ? `Đã tự điền thông tin. ${warning}` : "Đã tự điền thông tin từ trang sản phẩm. Hãy kiểm tra và chỉnh sửa nếu cần.",
+          message: warning ? warning : "Đã tự điền thông tin từ trang sản phẩm. Hãy kiểm tra và chỉnh sửa nếu cần.",
+          reference,
         });
       } catch (reason) {
         if (controller.signal.aborted || requestID !== enrichmentRequest.current) return;
@@ -110,6 +119,7 @@ export function ClipMintApp() {
       setFrames(extracted); setProgress(0.13); setStage("AI đang phân tích sản phẩm và các cảnh quay");
       const productAnalysis = await api.analyzeProduct({
         productName: form.productName.trim(), brand: form.brand.trim(), productUrl: form.productUrl.trim(),
+        referenceTitle: enrichment.reference?.title ?? "", referenceAuthor: enrichment.reference?.author ?? "",
         features: form.featuresText.split(/\n|,/).map((item) => item.trim()).filter(Boolean), frames: extracted,
       });
       setAnalysis(productAnalysis); setProgress(0.2); setStage("AI đang viết các hook phù hợp");
