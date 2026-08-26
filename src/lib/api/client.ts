@@ -47,7 +47,7 @@ export function createApiClient(
   async function json<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
     const payload = JSON.stringify(body);
     if (new TextEncoder().encode(payload).byteLength > MAX_JSON_REQUEST_BYTES) {
-      throw new ApiError("Dữ liệu hình ảnh quá lớn. Hãy chọn video có độ phân giải thấp hơn.", 413, "request_too_large");
+      throw new ApiError("Dữ liệu hình ảnh quá lớn. Hãy chọn video độ phân giải thấp hơn hoặc dùng ít ảnh hơn.", 413, "request_too_large");
     }
     const response = await fetcher(`${normalizedBaseURL}${path}`, {
       method: "POST",
