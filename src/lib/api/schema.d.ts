@@ -175,6 +175,11 @@ export interface components {
             description: string;
             sceneType: string;
         };
+        ProductAssetObservation: {
+            assetIndex: number;
+            description: string;
+            visibleDetails: string[];
+        };
         ProductAnalysis: {
             summary: string;
             targetAudience: string[];
@@ -183,6 +188,7 @@ export interface components {
             userProvidedClaims: string[];
             warnings: string[];
             relevantScenes: components["schemas"]["RelevantScene"][];
+            assetObservations: components["schemas"]["ProductAssetObservation"][];
         };
         Hook: {
             id: string;

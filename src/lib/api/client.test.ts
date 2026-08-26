@@ -38,7 +38,7 @@ describe("API request transport", () => {
     await createApiClient("https://api.example.com///", fetcher).generateHooks({
       productName: "Demo",
       brand: "",
-      analysis: { summary: "Demo", targetAudience: [], useCases: [], verifiedFacts: [], userProvidedClaims: [], warnings: [], relevantScenes: [] },
+      analysis: { summary: "Demo", targetAudience: [], useCases: [], verifiedFacts: [], userProvidedClaims: [], warnings: [], relevantScenes: [], assetObservations: [] },
     });
     expect(requestedURL).toBe("https://api.example.com/api/v1/hooks/generate");
   });

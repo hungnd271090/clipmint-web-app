@@ -9,6 +9,7 @@ import { VideoConfig } from "@/components/video-config/VideoConfig";
 import { VideoResults } from "@/components/video-results/VideoResults";
 import { VideoUpload } from "@/components/video-upload/VideoUpload";
 import { extractRepresentativeFrames } from "@/features/frame-extraction/extract";
+import { prepareProductAssetFrames } from "@/features/image-assets/prepare";
 import { renderMotionVideo } from "@/features/video-rendering/motion";
 import { renderVideo } from "@/features/video-rendering/render";
 import { api, ApiError, type Hook, type ProductAnalysis, type VideoPlan } from "@/lib/api/client";
@@ -21,7 +22,7 @@ import { readVideoMeta } from "@/lib/video";
 import type { DirectoryHandleLike, ExtractedFrame, ProductAsset, ProductFormData, RenderResult, VideoConfiguration, VideoMeta } from "@/types";
 
 const initialForm: ProductFormData = { productName: "", brand: "", productUrl: "", featuresText: "" };
-const initialConfig: VideoConfiguration = { count: 1, duration: 15, voice: "coral", voiceStyle: "Tự nhiên như một người dùng đang giới thiệu sản phẩm", subtitleStyle: "mint" };
+const initialConfig: VideoConfiguration = { count: 1, duration: 15, voice: "coral", voiceStyle: "Tự nhiên, tự tin như người bán đang giới thiệu sản phẩm của mình", subtitleStyle: "mint" };
 const initialEnrichment: EnrichmentState = { status: "idle", message: "" };
 
 export function ClipMintApp() {
@@ -50,10 +51,13 @@ export function ClipMintApp() {
   const clearResults = useCallback(() => {
     setResults((current) => { current.forEach((result) => URL.revokeObjectURL(result.url)); return []; });
   }, []);
+  const invalidateAnalysis = useCallback(() => {
+    setFrames([]); setAnalysis(null); setHooks([]); setSelected([]); clearResults();
+  }, [clearResults]);
   const replaceAllAssets = useCallback((next: ProductAsset[]) => {
     setAssets((current) => { current.forEach(revokeAsset); return next; });
-    clearResults();
-  }, [clearResults]);
+    invalidateAnalysis();
+  }, [invalidateAnalysis]);
 
   useEffect(() => () => { if (previewURL) URL.revokeObjectURL(previewURL); }, [previewURL]);
   useEffect(() => { formRef.current = form; }, [form]);
@@ -115,6 +119,7 @@ export function ClipMintApp() {
   const selectedHooks = useMemo(() => selected.map((id) => hooks.find((hook) => hook.id === id)).filter((hook): hook is Hook => Boolean(hook)), [hooks, selected]);
 
   function updateForm(next: ProductFormData) {
+    if (next.productName !== form.productName || next.brand !== form.brand || next.featuresText !== form.featuresText) invalidateAnalysis();
     if (next.productUrl !== form.productUrl) {
       replaceAllAssets([]);
       const productURL = next.productUrl.trim();
@@ -127,13 +132,13 @@ export function ClipMintApp() {
 
   async function selectVideo(next: File) {
     const nextMeta = await readVideoMeta(next);
-    setFile(next); setMeta(nextMeta); setFrames([]); resetAnalysis();
+    setFile(next); setMeta(nextMeta); invalidateAnalysis();
     setPreviewURL(URL.createObjectURL(next)); setError("");
   }
 
   function addAssets(files: File[]) {
-    setAssets((current) => [...current, ...files.map(localAsset)].slice(0, 10));
-    clearResults(); setError("");
+    setAssets((current) => [...current, ...files.map(localAsset)].slice(0, 8));
+    invalidateAnalysis(); setError("");
   }
 
   function replaceAsset(id: string, next: File) {
@@ -142,7 +147,7 @@ export function ClipMintApp() {
       revokeAsset(asset);
       return { ...localAsset(next), id };
     }));
-    clearResults(); setError("");
+    invalidateAnalysis(); setError("");
   }
 
   function removeAsset(id: string) {
@@ -150,7 +155,7 @@ export function ClipMintApp() {
       if (asset.id === id) revokeAsset(asset);
       return asset.id !== id;
     }));
-    clearResults();
+    invalidateAnalysis();
   }
 
   async function analyze() {
@@ -162,8 +167,12 @@ export function ClipMintApp() {
         setStage("Đang trích xuất các frame đại diện trên thiết bị");
         extracted = frames.length ? frames : await extractRepresentativeFrames(file, meta.duration);
         setFrames(extracted);
+      } else {
+        setStage("Đang nén ảnh sản phẩm để AI nhận diện từng ảnh");
+        extracted = frames.length === assets.length ? frames : await prepareProductAssetFrames(assets, api.fetchProductImage);
+        setFrames(extracted);
       }
-      setProgress(0.13); setStage(file ? "AI đang phân tích sản phẩm và các cảnh quay" : "AI đang phân tích thông tin sản phẩm");
+      setProgress(0.13); setStage(file ? "AI đang phân tích sản phẩm và các cảnh quay" : "AI đang phân tích thông tin và từng ảnh sản phẩm");
       const productAnalysis = await api.analyzeProduct({
         analysisMode: file ? "video" : "product-only",
         productName: form.productName.trim(), brand: form.brand.trim(), productUrl: form.productUrl.trim(),
@@ -253,12 +262,10 @@ export function ClipMintApp() {
     catch (reason) { setError(message(reason)); }
   }
 
-  function resetAnalysis() { setAnalysis(null); setHooks([]); setSelected([]); clearResults(); }
-
   return <>
     <header className="topbar"><a className="brand" href="#top" aria-label="ClipMint AI"><span className="brand-mark">C</span><span>ClipMint <b>AI</b></span></a><nav><a href="#how">Cách hoạt động</a><a href="#privacy">Quyền riêng tư</a><span className="beta">MVP beta</span></nav></header>
     <main id="top">
-      <section className="hero"><div className="eyebrow"><span>✦</span> AI VIDEO AFFILIATE STUDIO</div><h1>Biến video hoặc ảnh thành<br/><em>video bán hàng cuốn hút</em></h1><p>Tải video thô hoặc chỉ dán link sản phẩm. ClipMint gợi ý hook, sáng tạo kịch bản và dựng video ngay trên máy.</p><div className="trust-row"><span>✓ Video và ảnh tải lên không rời thiết bị</span><span>✓ Tối đa 3 video</span><span>✓ Xuất MP4 dọc 1080p</span></div></section>
+      <section className="hero"><div className="eyebrow"><span>✦</span> AI VIDEO AFFILIATE STUDIO</div><h1>Biến video hoặc ảnh thành<br/><em>video bán hàng cuốn hút</em></h1><p>Tải video thô hoặc chỉ dán link sản phẩm. ClipMint gợi ý hook, sáng tạo kịch bản và dựng video ngay trên máy.</p><div className="trust-row"><span>✓ Chỉ gửi frame/ảnh nén cho AI phân tích</span><span>✓ Tối đa 3 video</span><span>✓ Xuất MP4 dọc 1080p</span></div></section>
       <div className="workspace">
         <div className="main-column">
           {error && <div className="error-banner"><span>!</span><p>{error}</p><button onClick={() => setError("")} aria-label="Đóng">×</button></div>}
@@ -270,7 +277,7 @@ export function ClipMintApp() {
           <ProcessingProgress active={processing} stage={stage} progress={progress}/>
           <VideoResults results={results} onSave={(result) => void save(result)} onRegenerate={(result) => void regenerate(result)} regenerating={processing}/>
         </div>
-        <aside id="privacy"><div className="privacy-card"><span>◉</span><h3>Dựng video ngay trên máy</h3><p>Video gốc và ảnh bạn tải lên được xử lý trong trình duyệt. Với ảnh từ link, backend chỉ proxy ảnh đã chọn để tránh lỗi CORS.</p></div><div className="tips-card"><h3>Để video tốt hơn</h3><ul><li>Dùng 3–6 ảnh rõ nét</li><li>Có ảnh tổng thể và cận cảnh</li><li>Ưu tiên ảnh dọc hoặc vuông</li><li>Kiểm tra lại mọi thông tin AI điền</li></ul></div></aside>
+        <aside id="privacy"><div className="privacy-card"><span>◉</span><h3>Dựng video ngay trên máy</h3><p>Video gốc và ảnh gốc được dựng trong trình duyệt. ClipMint chỉ gửi các frame/ảnh WebP đã nén cho AI để hiểu nội dung và ghép đúng cảnh.</p></div><div className="tips-card"><h3>Để video tốt hơn</h3><ul><li>Dùng 3–6 ảnh rõ nét</li><li>Có ảnh tổng thể và cận cảnh</li><li>Ưu tiên ảnh dọc hoặc vuông</li><li>Kiểm tra lại mọi thông tin AI điền</li></ul></div></aside>
       </div>
       <section className="how" id="how"><span>3 bước đơn giản</span><h2>Từ link hoặc video đến nội dung sẵn sàng đăng</h2><div><article><i>01</i><h3>Nhập nguồn</h3><p>Tải video hoặc dán link; thay và bổ sung ảnh nếu cần.</p></article><article><i>02</i><h3>Chọn ý tưởng</h3><p>AI phân tích thông tin sản phẩm và đề xuất nhiều hook.</p></article><article><i>03</i><h3>Dựng trên máy</h3><p>FFmpeg WebAssembly tạo chuyển động, ghép giọng đọc và phụ đề.</p></article></div></section>
     </main>

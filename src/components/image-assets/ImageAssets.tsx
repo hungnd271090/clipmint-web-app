@@ -26,14 +26,14 @@ export function ImageAssets({ assets, required, disabled, onAdd, onReplace, onRe
       return [];
     }
     setError("");
-    return files.slice(0, Math.max(0, 10 - assets.length));
+    return files.slice(0, Math.max(0, 8 - assets.length));
   }
 
   return <section className={`panel asset-panel ${required && !assets.length ? "asset-required" : ""}`}>
     <div className="section-head">
       <span className="step">Ảnh</span>
       <div><h2>Ảnh dùng để dựng video</h2><p>Ảnh đọc từ link chỉ là gợi ý ban đầu. Bạn có thể thay, xóa hoặc tải thêm ảnh trước khi tạo video.</p></div>
-      <span className="status-chip">{assets.length}/10 ảnh</span>
+      <span className="status-chip">{assets.length}/8 ảnh</span>
     </div>
 
     {assets.length > 0 ? <div className="asset-grid">{assets.map((asset, index) => <article className="asset-card" key={asset.id}>
@@ -53,8 +53,8 @@ export function ImageAssets({ assets, required, disabled, onAdd, onReplace, onRe
     </button>}
 
     <div className="asset-footer">
-      <button className="button secondary" type="button" disabled={disabled || assets.length >= 10} onClick={() => input.current?.click()}>＋ Thêm ảnh</button>
-      <small>Ảnh tải lên chỉ được xử lý trong trình duyệt.</small>
+      <button className="button secondary" type="button" disabled={disabled || assets.length >= 8} onClick={() => input.current?.click()}>＋ Thêm ảnh</button>
+      <small>Ảnh gốc dựng tại trình duyệt; bản WebP nén được gửi cho AI để khớp nội dung.</small>
     </div>
     {error && <p className="form-error">{error}</p>}
     <input ref={input} hidden multiple type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" onChange={(event) => {
