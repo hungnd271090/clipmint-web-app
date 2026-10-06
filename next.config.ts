@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Local settings/input/output must never be bundled by file tracing.
+  outputFileTracingExcludes: { "/*": ["./.clipmint-data/**/*"] },
   headers: async () => [
     {
       source: "/(.*)",
@@ -14,4 +16,3 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
-

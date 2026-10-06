@@ -11,15 +11,22 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "generate:api": "node scripts/generate-api.mjs",
-    "postinstall": "node scripts/copy-ffmpeg-core.mjs"
+    "postinstall": "node scripts/copy-ffmpeg-core.mjs",
+    "dev:wan": "node scripts/wan-local.mjs",
+    "start:wan": "node scripts/wan-local.mjs --production",
+    "wan:worker": "node --import tsx scripts/wan-worker.ts",
+    "test:wan-local": "node scripts/wan-smoke.mjs"
   },
   "dependencies": {
     "@ffmpeg/core": "0.12.10",
     "@ffmpeg/ffmpeg": "0.12.15",
     "@ffmpeg/util": "0.12.2",
+    "@next/env": "^16.3.2",
     "next": "16.3.2",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "sharp": "^0.35.5",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",

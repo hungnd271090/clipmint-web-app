@@ -29,7 +29,7 @@ Open `http://localhost:3000`. The default backend is `http://localhost:8080`.
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 ```
 
-Never put an OpenAI or Runway API key in this repository. Provider calls are made by the Go backend only.
+Never commit an OpenAI, Runway or fal API key. Provider calls for the original studio are made by the Go backend. The separate local Wan studio uses server-only settings and a local Node worker.
 
 ## Commands
 
@@ -90,3 +90,11 @@ npm run generate:api
 Included: local video or product-image input, editable URL enrichment, frame or product-only analysis, AI hooks, one-to-three hook selection, edit/motion-plan validation, Smart Motion 2.5D, optional Runway AI Product Video, TTS, Web Worker rendering, subtitles/overlays, preview, save/download, and regenerate.
 
 Not included: accounts, database, payment, cloud storage, background queues, social posting, voice cloning, AI avatars, or authenticated marketplace scraping.
+
+## Local Wan product-video flow
+
+/product-video/wan adds a separate durable product-image → edited-background → Wan → optional audio → MP4 flow. Run **npm run dev:wan** to start Next and its local background worker, configure fal/OpenAI from **Cấu hình AI**, and install native FFmpeg/ffprobe in PATH.
+
+Projects, settings, input files, provider jobs and outputs persist in .clipmint-data/ (override with CLIPMINT_DATA_DIR). The original studio and /meta-ai remain available; the Go API is unchanged.
+
+See [setup, schema, storage and recovery details](docs/wan-product-video.md). This route needs a long-running local Node process and writable disk; it is not a Vercel/serverless workflow.
