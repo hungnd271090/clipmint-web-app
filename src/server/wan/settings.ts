@@ -1,6 +1,7 @@
 import type { PublicSettings, Settings } from "../../features/wan/types";
 import { capabilities, WAN_ENDPOINT } from "../../features/wan/types";
 import { atomicJSON, localPath, locked, readJSON, WanError } from "./storage";
+import { cloudMode, cloudConfigured } from "./runtime";
 export const defaults: Settings = {
   provider: "fal.ai", falKey: "", openaiKey: "", endpoint: WAN_ENDPOINT,
   textModel: "gpt-4.1-mini", imageModel: "gpt-image-1", ttsModel: "gpt-4o-mini-tts",
@@ -9,7 +10,7 @@ export const defaults: Settings = {
 };
 export async function getSettings(): Promise<Settings> {
   let saved: Partial<Settings> = {};
-  try { saved = await readJSON<Settings>(localPath("settings.json")); }
+  try { if(!cloudMode() || cloudConfigured())saved = await readJSON<Settings>(localPath("settings.json")); }
   catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
   return { ...defaults, ...saved,
     falKey: saved.falKey ?? process.env.FAL_KEY ?? "",

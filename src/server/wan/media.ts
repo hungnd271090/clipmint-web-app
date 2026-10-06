@@ -4,13 +4,20 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import type { Project, Asset } from "../../features/wan/types";
-import { assetById, localPath, WanError } from "./storage";
+import { assetById, ensureLocal, localPath, WanError } from "./storage";
+import { cloudMode } from "./runtime";
+export function mediaBinary(binary:string) {
+  if(!cloudMode() || !["ffmpeg","ffprobe"].includes(binary))return binary;
+  // Absolute runtime paths avoid Turbopack's virtual require.resolve proxy files.
+  // next.config.ts explicitly includes only these binaries in the function trace.
+  return path.join(/* turbopackIgnore: true */ process.cwd(),binary==="ffmpeg" ? "node_modules/@ffmpeg-binary/linux-x64/ffmpeg" : "node_modules/@ffprobe-installer/linux-x64/ffprobe");
+}
 
 export async function run(binary: string, args: string[], cwd?: string, timeout = 180_000): Promise<string> {
   return new Promise((resolve,reject) => {
-    const child = spawn(binary, args, { shell: false, cwd, windowsHide: true });
+    const child = spawn(mediaBinary(binary), args, { shell: false, cwd, windowsHide: true });
     let stdout = ""; let stderr = ""; let settled = false;
-    const timer = setTimeout(() => { child.kill("SIGKILL"); finish(new WanError("Xử lý media quá thời gian.")); }, timeout);
+    const timer = setTimeout(() => { child.kill("SIGKILL"); finish(new WanError("Xử lý media quá thời gian.")); }, cloudMode()?Math.min(timeout,240_000):timeout);
     function finish(error?: Error) { if (settled) return; settled = true; clearTimeout(timer); if (error) reject(error); else resolve(stdout); }
     child.stdout.on("data", d => { stdout = (stdout + String(d)).slice(-2_000_000); });
     child.stderr.on("data", d => { stderr = (stderr + String(d)).slice(-4000); });
@@ -69,10 +76,13 @@ export function subtitles(text: string, duration: number, start: number, end: nu
 }
 export async function compose(p: Project, videos: Asset[], output: string) {
   if (!videos.length) throw new WanError("Chưa có video cảnh.");
+  await Promise.all(videos.map(v=>ensureLocal(localPath(v.file))));
   const infos = await Promise.all(videos.map(v => probe(localPath(v.file))));
   const duration = infos.reduce((a,b) => a+b.duration,0);
   const voice = p.audio.enabled ? assetById(p,p.audio.audioId) : undefined;
   const music = p.audio.enabled && p.audio.musicId ? assetById(p,p.audio.musicId,"music") : undefined;
+  if(voice)await ensureLocal(localPath(voice.file));
+  if(music)await ensureLocal(localPath(music.file));
   let end = 0;
   if (voice) {
     if (!["audio"].includes(voice.kind)) throw new WanError("File giọng/audio không hợp lệ.");
@@ -105,7 +115,13 @@ export async function compose(p: Project, videos: Asset[], output: string) {
     }
     if (p.audio.subtitles && voice?.narration) {
       await writeFile(path.join(work,"captions.srt"),subtitles(voice.narration,voice.duration || end,p.audio.start,Math.min(end,p.audio.start+duration)));
-      filters.push("[joined]subtitles=filename=captions.srt:force_style='FontSize=18,Outline=1,Alignment=2,MarginV=35'[captioned]");
+      // A known font is bundled for serverless hosts without system fonts. Its
+      // constant path contains no user input; quotes/escaping are not needed here.
+      if(cloudMode()) {
+        const {copyFile}=await import("node:fs/promises");await mkdir(path.join(work,"fonts"));
+        await copyFile(path.join(process.cwd(),"src/server/wan/fonts/DejaVuSans.ttf"),path.join(work,"fonts/DejaVuSans.ttf"));
+      }
+      filters.push("[joined]subtitles=filename=captions.srt"+(cloudMode()?":fontsdir=fonts":"")+":force_style='FontName=DejaVu Sans,FontSize=18,Outline=1,Alignment=2,MarginV=35'[captioned]");
       videoOut = "[captioned]";
     }
     if (tracks.length) filters.push(tracks.join("") + "amix=inputs=" + tracks.length + ":duration=longest:normalize=0,alimiter=limit=0.95[audio]");

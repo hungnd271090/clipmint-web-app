@@ -1,6 +1,6 @@
-import { mkdir, stat, rm } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { atomicJSON, exists, files, localPath, locked, readJSON } from "./storage";
+import { atomicJSON, exists, files, localPath, locked, readJSON, persistFile, fileSize, removeStored } from "./storage";
 export interface CacheEntry { key: string; file?: string; data?: unknown }
 export async function getCache(key: string) {
   try {
@@ -10,6 +10,7 @@ export async function getCache(key: string) {
   } catch (e) { if (["ENOENT"].includes((e as NodeJS.ErrnoException).code || "")) return null; throw e; }
 }
 export async function saveCache(entry: CacheEntry) {
+  if(entry.file)await persistFile(localPath(entry.file));
   if (entry.file && !await exists(localPath(entry.file))) throw new Error("Missing cache output");
   await atomicJSON(localPath("cache/" + entry.key + "/result.json"),entry);
 }
@@ -21,7 +22,7 @@ export async function cacheStats() {
   let bytes=0; let entries=0;
   for (const dir of await files("cache")) {
     entries++;
-    for (const file of await files("cache/" + dir)) bytes += await stat(localPath("cache/" + dir + "/" + file)).then(s=>s.size).catch(()=>0);
+    for (const file of await files("cache/" + dir)) bytes += await fileSize(localPath("cache/" + dir + "/" + file)).catch(()=>0);
   }
   return {bytes,entries};
 }
@@ -32,7 +33,7 @@ export async function clearCache() {
       const j = await readJSON<{status:string}>(localPath("jobs/" + file));
       if (["queued","running","polling"].includes(j.status)) throw new Error("Có job đang chạy/chờ. Chờ job kết thúc trước khi xóa cache.");
     }
-    await rm(localPath("cache"),{recursive:true,force:true});
+    await removeStored(localPath("cache"),true);
     return cacheStats();
   });
 }

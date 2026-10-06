@@ -4,13 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Action, AudioOptions, Job, Project, ProjectResponse, PublicSettings, Scene } from "@/features/wan/types";
 import { capabilities } from "@/features/wan/types";
-type Configuration = {settings:PublicSettings; dependencies:{tools:{name:string;available:boolean}[];instructions:string};worker:{running:boolean}};
+type Configuration = {settings:PublicSettings; dependencies:{tools:{name:string;available:boolean}[];instructions:string};worker:{running:boolean;mode?:string};storage:{mode:string;configured:boolean;instructions:string;uploadPrefix?:string}};
 type Summary = {id:string;name:string;updatedAt:string};
 async function api<T>(path:string,method="GET",body?:unknown):Promise<T> {
   const response=await fetch("/api/wan/"+path,{method,cache:"no-store",
     headers:body instanceof FormData ? undefined : body===undefined ? undefined : {"Content-Type":"application/json"},
     body:body===undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body)});
-  const result=await response.json();if(!response.ok)throw new Error(result.error || "Yêu cầu thất bại.");return result as T;
+  const result=await response.json().catch(()=>({error:"Server trả lỗi HTTP "+response.status+". Thử lại hoặc kiểm tra cấu hình triển khai."}));if(!response.ok)throw new Error(result.error || "Yêu cầu thất bại.");return result as T;
 }
 const isActive=(j:Job)=>["queued","running","polling"].includes(j.status);
 const assetURL=(p:Project,a:string)=>"/api/wan/projects/"+p.id+"/assets/"+a;
@@ -30,6 +30,7 @@ export function WanStudio() {
   const [saved,setSaved]=useState(true);const dirty=useRef(false);const editVersion=useRef(0);
   const saving=useRef<Promise<void>|null>(null);const [showSettings,setShowSettings]=useState(false);
   const [cache,setCache]=useState<{bytes:number;entries:number}|null>(null);
+  const tickRunning=useRef(false);
   const disabled=busy || jobs.some(isActive);
   function assign(p:Project) {current.current=p;setProject(p);}
   const load=useCallback(async(projectId:string)=>{
@@ -47,6 +48,20 @@ export function WanStudio() {
     return ()=>{stopped=true;};
   },[load]);
   const projectId=project?.id;
+  const cloud=configuration?.storage.mode==="vercel-blob";
+  const hasActiveJob=jobs.some(isActive);
+  useEffect(()=>{
+    if(!cloud || !projectId || !hasActiveJob)return;
+    let stopped=false;
+    async function tick(){
+      if(tickRunning.current)return;tickRunning.current=true;
+      try{await api("jobs/tick","POST",{projectId});}
+      catch(e){if(!stopped)setError("Không xử lý được bước tiếp theo: "+(e instanceof Error?e.message:"Kiểm tra kết nối."));}
+      finally{tickRunning.current=false;}
+    }
+    void tick();const timer=setInterval(()=>void tick(),5000);
+    return ()=>{stopped=true;clearInterval(timer);};
+  },[cloud,projectId,hasActiveJob]);
   useEffect(()=>{
     if(!projectId)return;
     let stopped=false;
@@ -98,8 +113,20 @@ export function WanStudio() {
     if(!files?.length)return;
     await execute(async()=>{
       for(const file of Array.from(files)){
-        const form=new FormData();form.set("file",file);form.set("kind",kind);
-        const r=await api<ProjectResponse>("projects/"+current.current!.id+"/assets","POST",form);
+        const projectId=current.current!.id;
+        let r:ProjectResponse;
+        if(cloud){
+          if(file.size>(kind==="image"?20:100)*1024*1024)throw new Error("Ảnh tối đa 20MB, audio tối đa 100MB.");
+          const {upload}=await import("@vercel/blob/client");
+          const blob=await upload(configuration!.storage.uploadPrefix+projectId+"/"+crypto.randomUUID(),file,{
+            access:"private",handleUploadUrl:"/api/wan/uploads/token",multipart:true,
+            clientPayload:JSON.stringify({projectId,kind}),
+          });
+          r=await api<ProjectResponse>("projects/"+projectId+"/assets","POST",{kind,name:file.name,pathname:blob.pathname});
+        }else{
+          const form=new FormData();form.set("file",file);form.set("kind",kind);
+          r=await api<ProjectResponse>("projects/"+projectId+"/assets","POST",form);
+        }
         assign(r.project);setJobs(r.jobs);
       }
       setSaved(true);
@@ -125,18 +152,19 @@ export function WanStudio() {
         <div className="wan-projects"><select aria-label="Chọn project" disabled={disabled} value={project?.id || ""} onChange={e=>execute(()=>load(e.target.value))}>
           <option value="" disabled>Chọn project</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name || "Project "+p.id.slice(0,8)}</option>)}
           {project && !projects.some(p=>p.id===project.id) && <option value={project.id}>{project.name || "Project mới"}</option>}
-        </select><button className="button secondary" disabled={disabled} onClick={()=>execute(async()=>{
+        </select><button className="button secondary" disabled={disabled || !configuration?.storage.configured} onClick={()=>execute(async()=>{
           const r=await api<ProjectResponse>("projects","POST");assign(r.project);setJobs(r.jobs);
           setProjects(list=>[{id:r.project.id,name:"",updatedAt:r.project.updatedAt},...list]);dirty.current=false;setSaved(true);
           window.history.replaceState(null,"","/product-video/wan?project="+r.project.id);
         })}>+ Project mới</button></div></div>
       {error && <div className="error-banner" role="alert"><p>{error}</p><button aria-label="Đóng lỗi" onClick={()=>setError("")}>×</button></div>}
       {notice && <p className="ai-disclosure" role="status">{notice}</p>}
+      {configuration && !configuration.storage.configured && <p className="warning">Chưa kết nối lưu trữ Vercel. {configuration.storage.instructions}</p>}
       {configuration && !configuration.worker.running && <p className="warning">Worker chưa chạy. Chạy <code>npm run dev:wan</code> hoặc <code>npm run wan:worker</code> khi web đã chạy. Job đã lưu sẽ tiếp tục khi worker khởi động.</p>}
       {showSettings && configuration && <SettingsPanel configuration={configuration} disabled={busy}
         onSave={input=>execute(async()=>{await api("settings","PUT",input);setConfiguration(await api("settings"));setNotice("Đã lưu cấu hình.");})}
         onTest={()=>execute(async()=>{const r=await api<{message:string}>("settings/test","POST",{});setNotice(r.message);setConfiguration(await api("settings"));})}/>}
-      {!project && <section className="panel"><h2>Tạo project để bắt đầu</h2><p>Bấm “Project mới” ở trên. Ảnh, prompt, lựa chọn và video sẽ được lưu trên máy.</p></section>}
+      {!project && <section className="panel"><h2>Tạo project để bắt đầu</h2><p>Bấm “Project mới” ở trên. Ảnh, prompt, lựa chọn và video được lưu {cloud?"bền vững trong Vercel Blob Private":"trên máy"}.</p></section>}
       {project && <div className="wan-layout"><div className="main-column">
         <section className="panel"><div className="section-head"><span className="step">1</span><div><h2>Ảnh sản phẩm</h2><p>JPEG, PNG, WebP · 20MB/ảnh. Ảnh chính cho cảnh mở đầu.</p></div><span className="status-chip">{saved?"Đã lưu":"Đang lưu…"}</span></div>
           <fieldset disabled={disabled}><label className="wan-upload">+ Upload nhiều ảnh<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={e=>{upload(e.target.files,"image");e.target.value="";}}/></label>
@@ -224,7 +252,7 @@ export function WanStudio() {
           {final && <div className="wan-final"><video className="wan-video" src={assetURL(project,final.id)} controls preload="metadata"/><a className="button primary" href={assetURL(project,final.id)+"?download=1"} download>↓ Tải MP4</a><p>Bản xuất đã lưu. Sau khi đổi lựa chọn, bấm ghép để cập nhật.</p></div>}
         </section>
       </div><aside>
-        <div className="privacy-card"><h3>Project trên máy của bạn</h3><p>Input và output lưu local. Chỉ ảnh/prompt cần thiết gửi tới provider khi bạn bấm tạo. Key giữ ở backend.</p><button className="button secondary" disabled={disabled || saved} onClick={()=>execute(save)}>Lưu ngay</button></div>
+        <div className="privacy-card"><h3>{cloud?"Project trên Vercel":"Project trên máy của bạn"}</h3><p>Input và output lưu {cloud?"trong Blob Private":"local"}. Chỉ ảnh/prompt cần thiết gửi tới provider khi bạn bấm tạo. Key giữ ở backend.</p>{cloud && <p>Không cần worker local. Giữ trang mở để tải và ghép kết quả; mở lại sẽ tiếp tục với job đã lưu.</p>}<button className="button secondary" disabled={disabled || saved} onClick={()=>execute(save)}>Lưu ngay</button></div>
         <div className="tips-card"><h3>Tiến trình</h3>{jobs.length===0?<p>Chưa có job.</p>:jobs.slice().reverse().map(j=><JobCard key={j.id} job={j} disabled={disabled} onRetry={(requestId,acknowledgeUncertain)=>execute(async()=>{await api("jobs/"+j.id+"/retry","POST",{requestId,acknowledgeUncertain});await reload();})}/>)}</div>
         <div className="tips-card"><h3>Cache</h3><p>{cache?cache.entries+" mục · "+(cache.bytes/1024/1024).toFixed(1)+" MB":"Input giống nhau dùng lại kết quả thành công."}</p><div className="wan-actions">
           <button className="button secondary" onClick={()=>execute(async()=>setCache(await api("cache")))}>Xem dung lượng</button><button className="button danger" disabled={disabled} onClick={()=>execute(async()=>{setCache(await api("cache","DELETE"));setNotice("Đã xóa cache; project/ảnh/video/audio đã lưu được giữ lại.");})}>Xóa cache</button></div></div>
@@ -264,7 +292,7 @@ function SettingsPanel({configuration,disabled,onSave,onTest}:{configuration:Con
       <label className="wan-check"><input type="checkbox" checked={v.promptExpansion} onChange={e=>update({promptExpansion:e.target.checked})}/>Bật prompt expansion</label>
       <label className="wan-check"><input type="checkbox" checked={show} onChange={e=>setShow(e.target.checked)}/>Hiện key đang nhập</label>
       <div className="wan-actions"><button className="button primary" onClick={async()=>{await onSave({...v,falKey,openaiKey});setFalKey("");setOpenaiKey("");}}>Lưu cấu hình</button><button className="button secondary" onClick={onTest}>Kiểm tra đã lưu · không inference</button></div></fieldset>
-    <p className="ai-disclosure">Kiểm tra schema/cấu hình/dependency local; không tạo video/ảnh/giọng và không xác nhận key/quota. Endpoint khác cần bổ sung adapter.</p>
+    <p className="ai-disclosure">Kiểm tra schema/cấu hình/storage/dependency; không tạo video/ảnh/giọng và không xác nhận key/quota. Endpoint khác cần bổ sung adapter.</p>
     <p>{configuration.dependencies.tools.map(t=>t.name+": "+(t.available?"✓ sẵn sàng":"thiếu")).join(" · ")}</p>
     {!configuration.dependencies.tools.every(t=>t.available) && <p className="warning">{configuration.dependencies.instructions}</p>}
   </section>;

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import sharp from "sharp";
 import type { Settings, Project, Scene, Job, Suggestion } from "../../features/wan/types";
-import { assetById, localPath, normalize, referenceImages, WanError } from "./storage";
+import { assetById, ensureLocal, localPath, normalize, referenceImages, WanError } from "./storage";
 
 const preservation = "Preserve the reference product's silhouette, proportions, color, logo placement and visible details as closely as possible. Change only the environment/lighting. Do not invent product specifications. Product identity may vary; the user must review the preview.";
 export class FalHTTPError extends WanError {
@@ -14,14 +14,14 @@ async function openai(s: Settings, endpoint: string, body: BodyInit, multipart =
   if (!s.openaiKey) throw new WanError("Chưa cấu hình OpenAI cho phân tích ảnh, chỉnh ảnh và TTS. Mở Cấu hình AI.");
   const r = await fetch("https://api.openai.com/v1/" + endpoint, { method:"POST",
     headers: { Authorization:"Bearer " + s.openaiKey, ...(multipart ? {} : { "Content-Type":"application/json" }) },
-    body, signal:AbortSignal.timeout(Math.min(s.timeoutSeconds,300)*1000) });
+    body, signal:AbortSignal.timeout(Math.min(s.timeoutSeconds,240)*1000) });
   // Provider error bodies may contain echoed input or credentials: do not log/return them.
   if (!r.ok) throw new WanError("OpenAI HTTP " + r.status + ". Kiểm tra key, quyền model, quota và cấu hình.",502);
   return r;
 }
 async function imageData(p: Project, imageId: string) {
   const a = assetById(p,imageId,"image");
-  const bytes = await sharp(localPath(a.file)).resize({ width:1024,height:1024,fit:"inside",withoutEnlargement:true }).jpeg({quality:85}).toBuffer();
+  const bytes = await sharp(await ensureLocal(localPath(a.file))).resize({ width:1024,height:1024,fit:"inside",withoutEnlargement:true }).jpeg({quality:85}).toBuffer();
   return "data:image/jpeg;base64," + bytes.toString("base64");
 }
 async function structured(s: Settings, p: Project, prompt: string, schema: unknown) {
@@ -65,7 +65,7 @@ export async function editImage(s: Settings,p: Project,scene: Scene) {
   // GPT Image's edits endpoint explicitly supports multiple references; primary is first.
   const refs = referenceImages(p,scene.sourceId || p.primaryId);
   for (const [i,a] of refs.entries()) {
-    const bytes = await sharp(localPath(a.file)).resize({width:2048,height:2048,fit:"inside",withoutEnlargement:true}).png().toBuffer();
+    const bytes = await sharp(await ensureLocal(localPath(a.file))).resize({width:2048,height:2048,fit:"inside",withoutEnlargement:true}).png().toBuffer();
     body.append("image[]",new Blob([new Uint8Array(bytes)],{type:"image/png"}),"reference-" + i + ".png");
   }
   const result = await (await openai(s,"images/edits",body,true)).json();
@@ -96,7 +96,7 @@ async function fal(s: Settings,url: string,method="GET",body?: unknown) {
 export async function submitVideo(s: Settings,job: Job) {
   const scene = job.snapshot.scenes.find(v=>v.id===job.sceneId)!;
   const image = assetById(job.snapshot,scene.original ? scene.sourceId : scene.imageId!,"image");
-  const bytes = await readFile(localPath(image.file));
+  const bytes = await readFile(await ensureLocal(localPath(image.file)));
   const result = await fal(s,"https://queue.fal.run/" + job.model,"POST",
     {...job.params,image_url:"data:" + image.mime + ";base64," + bytes.toString("base64")});
   if (typeof result.request_id!=="string" || typeof result.status_url!=="string" || typeof result.response_url!=="string")

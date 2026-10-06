@@ -5,12 +5,16 @@ import { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
 import type { Action, Asset, Job, Project, Settings } from "../../features/wan/types";
 import { capabilities } from "../../features/wan/types";
-import { allJobs, assertIdle, enqueue, retryJob, workerStatus } from "./jobs";
+import { allJobs, assertIdle, enqueue, retryJob, tickJobs, workerStatus } from "./jobs";
 import { cacheStats, clearCache } from "./cache";
 import { getSettings, publicSettings, putSettings, validateSettings } from "./settings";
-import { assetById, createProject, importAsset, listProjects, localPath, locked, readProject, saveProject, WanError } from "./storage";
+import { assetById, createProject, importAsset, listProjects, localPath, locked, readProject, removeStored, saveProject, WanError } from "./storage";
 import { dependencies, extractAudio, validateImage } from "./media";
 import { updateProject } from "./projects";
+import { cloudConfigured, cloudMode, withWorkspace } from "./runtime";
+import { assertBlob, blobKey, blobPrefix, blobRead } from "./blob";
+import { BlobError, BlobNotFoundError, get, del, head } from "@vercel/blob";
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 
 export function publicJob(j: Job) {
   return Object.fromEntries(Object.entries(j).filter(([key])=>!["snapshot","params","result"].includes(key)));
@@ -37,34 +41,59 @@ async function limited(req: Request,limit: number) {
   } finally { reader.releaseLock(); }
   return Buffer.concat(chunks);
 }
-function localOnly(req: Request) {
+function sameOrigin(req: Request) {
   const url=new URL(req.url); const requestHost=req.headers.get("host") || url.host;
   const host=new URL("http://" + requestHost).hostname;
   const allowed=["localhost","127.0.0.1","[::1]",...(process.env.CLIPMINT_LOCAL_HOSTS || "").split(",").filter(Boolean)];
-  if (!allowed.includes(host)) throw new WanError("Wan backend chỉ chạy local. Dùng http://localhost:3000 và npm run dev:wan; không hỗ trợ serverless.",403);
+  if (!cloudMode() && !allowed.includes(host)) throw new WanError("Hostname chưa được phép. Đặt CLIPMINT_LOCAL_HOSTS cho server riêng hoặc dùng chế độ Vercel Blob.",403);
   const origin=req.headers.get("origin");
   if ((origin && new URL(origin).host!==requestHost) || req.headers.get("sec-fetch-site")==="cross-site") throw new WanError("Origin không hợp lệ.",403);
 }
 export async function handle(req: Request,parts: string[]): Promise<Response> {
+  return withWorkspace(()=>handleRequest(req,parts));
+}
+async function handleRequest(req:Request,parts:string[]) {
   try {
-    localOnly(req);
+    sameOrigin(req);
     const method=req.method;
+    const storage={mode:cloudMode()?"vercel-blob":"local",configured:!cloudMode() || cloudConfigured(),
+      uploadPrefix:cloudMode()?blobPrefix()+"uploads/":undefined,
+      instructions:"Vercel → Storage → Create Blob → Private → Connect project (Production/Preview), giữ tên BLOB_READ_WRITE_TOKEN, rồi Redeploy."};
     if (parts.length===1 && parts[0]==="settings") {
-      if (method==="GET") return json({settings:publicSettings(await getSettings()),capabilities,dependencies:await dependencies(),worker:await workerStatus()});
+      if (method==="GET") return json({settings:publicSettings(await getSettings()),capabilities,dependencies:await dependencies(),worker:await workerStatus(),storage});
       if (method==="PUT") return json({settings:await putSettings(await bodyJSON(req) as Partial<Settings>)});
     }
     if (parts.join("/")==="settings/test" && method==="POST") {
+      if(cloudMode()) {assertBlob();await head(blobKey("settings.json")).catch(e=>{if(!(e instanceof BlobNotFoundError))throw e;});}
       validateSettings(await getSettings());
       return json({dependencies:await dependencies(),worker:await workerStatus(),
-        message:"Đã kiểm tra schema/cấu hình local và dependency. Không tạo video/ảnh/giọng, không xác minh key/quota bằng inference. Chưa có kiểm tra key fal miễn phí phù hợp được xác minh; xem fal dashboard để kiểm tra quyền và số dư."});
+        message:"Đã kiểm tra schema/cấu hình, storage và dependency. Không tạo video/ảnh/giọng, không xác minh key/quota bằng inference. Chưa có kiểm tra key fal miễn phí phù hợp được xác minh; xem fal dashboard để kiểm tra quyền và số dư."});
     }
     if (parts.length===1 && parts[0]==="cache") {
       if (method==="GET") return json(await cacheStats());
       if (method==="DELETE") return json(await clearCache());
     }
     if (parts.length===1 && parts[0]==="projects") {
-      if (method==="GET") return json({projects:(await listProjects()).map(p=>({id:p.id,name:p.name,updatedAt:p.updatedAt}))});
+      if (method==="GET") return json({projects:(cloudMode() && !cloudConfigured()?[]:await listProjects()).map(p=>({id:p.id,name:p.name,updatedAt:p.updatedAt}))});
       if (method==="POST") return json(await responseProject(await createProject((await getSettings()).resolution)),201);
+    }
+    if(parts.join("/")==="jobs/tick" && method==="POST") {
+      const input=await bodyJSON(req);await tickJobs(input.projectId);return json({ok:true});
+    }
+    if(parts.join("/")==="uploads/token" && method==="POST" && cloudMode()) {
+      assertBlob();const input=await bodyJSON(req) as HandleUploadBody;
+      // Client completion is handled explicitly after upload; unsigned callback bodies
+      // cannot attach files or mutate projects.
+      if(input.type!=="blob.generate-client-token")throw new WanError("Upload event không hợp lệ.");
+      const result=await handleUpload({request:req,body:input,onBeforeGenerateToken:async(pathname,payload)=>{
+        const parsed=JSON.parse(payload || "{}");const project=await readProject(parsed.projectId);await assertIdle(project.id);
+        if(!["image","audio","music"].includes(parsed.kind))throw new WanError("Loại upload không hợp lệ.");
+        const expected=blobPrefix()+"uploads/"+project.id+"/";
+        if(!pathname.startsWith(expected) || !/^[a-zA-Z0-9_-]+$/.test(pathname.slice(expected.length)))throw new WanError("Đường dẫn upload không hợp lệ.");
+        return {addRandomSuffix:false,allowOverwrite:false,maximumSizeInBytes:(parsed.kind==="image"?20:100)*1024*1024,
+          allowedContentTypes:parsed.kind==="image"?["image/jpeg","image/png","image/webp"]:["audio/mpeg","audio/wav","audio/x-wav","audio/mp4","audio/x-m4a","application/octet-stream"],validUntil:Date.now()+15*60_000};
+      }});
+      return json(result);
     }
     if (parts[0]==="jobs" && parts[2]==="retry" && method==="POST") {
       const input=await bodyJSON(req);
@@ -81,13 +110,23 @@ export async function handle(req: Request,parts: string[]): Promise<Response> {
         return json({job:publicJob(await enqueue(projectId,input.action as Action,input.sceneId,input.force===true))},202);
       }
       if (parts[2]==="assets" && parts.length===3 && method==="POST") {
-        const type=req.headers.get("content-type") || "";
-        if (!type.startsWith("multipart/form-data;")) throw new WanError("Cần multipart/form-data.");
-        const bytes=await limited(req,105*1024*1024);
-        const form=await new Response(new Uint8Array(bytes),{headers:{"Content-Type":type}}).formData();
-        const kind=String(form.get("kind") || "image") as Asset["kind"];
+        let kind:Asset["kind"];let file:File;let staging:string|undefined;
+        if(cloudMode()) {
+          const input=await bodyJSON(req);kind=input.kind;
+          const expected=blobPrefix()+"uploads/"+projectId+"/";
+          if(typeof input.pathname!=="string" || !input.pathname.startsWith(expected) || !/^[a-zA-Z0-9_-]+$/.test(input.pathname.slice(expected.length)))throw new WanError("Upload không thuộc project.");
+          const pathname=input.pathname as string;staging=pathname;
+          const info=await head(pathname);if(info.size>(kind==="image"?20:100)*1024*1024)throw new WanError("File quá lớn.",413);
+          const bytes=await blobRead(pathname.slice(blobPrefix().length));
+          file=new File([new Uint8Array(bytes)],path.basename(String(input.name || "upload")),{type:info.contentType});
+        } else {
+          const type=req.headers.get("content-type") || "";
+          if (!type.startsWith("multipart/form-data;")) throw new WanError("Cần multipart/form-data.");
+          const bytes=await limited(req,105*1024*1024);
+          const form=await new Response(new Uint8Array(bytes),{headers:{"Content-Type":type}}).formData();
+          kind=String(form.get("kind") || "image") as Asset["kind"];file=form.get("file") as File;
+        }
         if (!["image","audio","music"].includes(kind)) throw new WanError("Loại file không hợp lệ.");
-        const file=form.get("file");
         if (!(file instanceof File) || !file.size) throw new WanError("Chưa chọn file.");
         if (file.size>(kind==="image"?20:100)*1024*1024) throw new WanError("Ảnh tối đa 20MB, audio tối đa 100MB.",413);
         return locked("project-" + projectId,async()=>{
@@ -110,7 +149,7 @@ export async function handle(req: Request,parts: string[]): Promise<Response> {
             if (kind==="audio") {p.audio.audioId=a.id;p.audio.start=0;p.audio.end=null;}
             if (kind==="music") p.audio.musicId=a.id;
             await saveProject(p); return json(await responseProject(p),201);
-          } finally { await rm(temp,{force:true}); await rm(normalized,{force:true}); }
+          } finally { await rm(temp,{force:true}); await rm(normalized,{force:true});if(staging)await del(staging); }
         });
       }
       if (parts[2]==="assets" && parts[3]) {
@@ -119,10 +158,19 @@ export async function handle(req: Request,parts: string[]): Promise<Response> {
           if (p.scenes.some(s=>[s.sourceId,s.imageId,s.videoId].includes(a.id)) || [p.audio.audioId,p.audio.musicId,p.finalId].includes(a.id)) throw new WanError("File đang được cảnh/audio sử dụng. Bỏ lựa chọn đó trước khi xóa.",409);
           p.assets=p.assets.filter(v=>v.id!==a.id);
           if (p.primaryId===a.id) p.primaryId=p.assets.find(v=>v.kind==="image")?.id || "";
-          await saveProject(p); await rm(localPath(a.file),{force:true}); return json(await responseProject(p));
+          await saveProject(p); await removeStored(localPath(a.file)); return json(await responseProject(p));
         });
         if (method==="GET") {
-          const a=assetById(await readProject(projectId),parts[3]); const file=localPath(a.file); const info=await stat(file);
+          const a=assetById(await readProject(projectId),parts[3]);
+          if(cloudMode()) {
+            const result=await get(blobKey(a.file),{access:"private",useCache:false,headers:req.headers.has("range")?{Range:req.headers.get("range")!}:undefined});
+            if(!result?.stream)throw new WanError("File không tồn tại.",404);
+            const headers=new Headers({"Content-Type":a.mime,"Cache-Control":"no-store","Accept-Ranges":"bytes","Cross-Origin-Resource-Policy":"same-origin"});
+            for(const key of ["content-length","content-range"])if(result.headers.has(key))headers.set(key,result.headers.get(key)!);
+            if(new URL(req.url).searchParams.has("download"))headers.set("Content-Disposition",'attachment; filename="clipmint-'+a.id+(a.kind==="video"?".mp4":".m4a")+'"');
+            return new Response(result.stream,{status:headers.has("content-range")?206:200,headers});
+          }
+          const file=localPath(a.file); const info=await stat(file);
           let start=0; let end=info.size-1; const range=req.headers.get("range");
           if (range) {
             const match=/^bytes=(\d*)-(\d*)$/.exec(range);
@@ -143,7 +191,10 @@ export async function handle(req: Request,parts: string[]): Promise<Response> {
     return json({error:"Route không tồn tại."},404);
   } catch (e) {
     if (e instanceof WanError) return json({error:e.message},e.status);
+    if(e instanceof BlobNotFoundError)return json({error:"File trong Blob không còn tồn tại."},404);
+    if(e instanceof BlobError)return json({error:"Không truy cập được Vercel Blob Private. Kiểm tra store Private, BLOB_READ_WRITE_TOKEN, quyền kết nối project và quota trong Vercel rồi thử lại."},503);
+    if(e instanceof Error && (e as Error & {status?:number}).status===503)return json({error:e.message},503);
     if ((e as NodeJS.ErrnoException).code==="ENOENT") return json({error:"Project/file không còn tồn tại."},404);
-    return json({error:e instanceof Error && e.message.startsWith("Có job") ? e.message : "Yêu cầu thất bại. Kiểm tra dữ liệu local và cấu hình."},500);
+    return json({error:e instanceof Error && e.message.startsWith("Có job") ? e.message : "Yêu cầu thất bại. Kiểm tra storage và cấu hình."},500);
   }
 }

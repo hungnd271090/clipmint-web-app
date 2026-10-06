@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Action, Job, Project, Scene, Settings } from "../../features/wan/types";
-import { acquireLock, assetById, atomicJSON, contentHash, files, hash, id, importAsset, localPath, locked, readJSON, readProject, referenceImages, saveProject, WanError } from "./storage";
+import { acquireLock, assetById, atomicJSON, contentHash, ensureLocal, files, hash, id, importAsset, localPath, locked, readJSON, readProject, referenceImages, saveProject, WanError } from "./storage";
+import { cloudMode } from "./runtime";
 import { getSettings, validateSettings } from "./settings";
 import { getCache, cacheOutput, saveCache, type CacheEntry } from "./cache";
 import { advertisingCopy, editImage, FalHTTPError, FalJobError, improve, pollVideo, submitVideo, suggest, tts, videoParams } from "./providers";
@@ -109,6 +110,7 @@ async function attach(j: Job,entry: CacheEntry) {
       const result=entry.data as {prompt:string;motion:string}; scene!.prompt=result.prompt; scene!.motion=result.motion;
     }
     if (entry.file) {
+      await ensureLocal(localPath(entry.file));
       const kind = j.action==="image" ? "image" : ["tts","extract"].includes(j.action) ? "audio" : "video";
       const info = kind==="image" ? undefined : await probe(localPath(entry.file));
       const a=await importAsset(p,localPath(entry.file),kind,kind==="image"?"image/png":kind==="video"?"video/mp4":"audio/mp4",j.action+"-"+j.id,info?.duration);
@@ -126,6 +128,8 @@ async function attach(j: Job,entry: CacheEntry) {
 export async function processJob(j: Job) {
   const release=await acquireLock("cache-" + j.key); if (!release) return;
   try {
+    Object.assign(j,await readJSON<Job>(jobPath(j.id)));
+    if(!active(j))return;
     const s=await getSettings();
     // Freeze models at enqueue; current secret keys are read only by the worker.
     if (j.action!=="video") Object.assign(s,j.params);
@@ -254,7 +258,22 @@ export async function startWorker(signal: AbortSignal) {
     await Promise.allSettled(tasks);
   } finally { await release(); await rm(localPath("worker.json"),{force:true}); }
 }
+// Vercel functions perform one bounded step. Provider rendering continues in fal's
+// queue; subsequent ticks/reopening the page resume the stored request ID.
+export async function tickJobs(projectId?:string) {
+  if(!cloudMode())return;
+  const release=await acquireLock("dispatch");if(!release)return;
+  try {
+    const s=await getSettings();const jobs=await allJobs();
+    const admitted=jobs.filter(j=>["running","polling"].includes(j.status)).length;
+    const eligible=jobs.filter(j=>active(j) && (j.status!=="queued" || admitted<s.concurrency) &&
+      (!j.requestId || Date.now()-Date.parse(j.updatedAt)>=s.pollSeconds*1000));
+    const job=eligible.find(j=>j.projectId===projectId) || eligible[0];
+    if(job)await processJob(job);
+  } finally {await release();}
+}
 export async function workerStatus() {
+  if(cloudMode())return {running:true,mode:"serverless"};
   try {
     const value=await readJSON<{heartbeat:string}>(localPath("worker.json"));
     return {running:Date.now()-Date.parse(value.heartbeat)<10_000};

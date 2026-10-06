@@ -1,13 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile, rename, rm, stat, readdir, copyFile } from "node:fs/promises";
 import path from "node:path";
+import { createReadStream } from "node:fs";
+import { cloudMode, requestWorkspace } from "./runtime";
+import { blobDownload, blobExists, blobFiles, blobLock, blobRead, blobRemove, blobWrite, blobKey } from "./blob";
+import { head } from "@vercel/blob";
 import type { Asset, Project } from "../../features/wan/types";
 
 export class WanError extends Error {
   constructor(message: string, public status = 400) { super(message); }
 }
 // Runtime-only local user data, never an input to a deployment bundle.
-export const dataRoot = () => path.resolve(/* turbopackIgnore: true */ process.env.CLIPMINT_DATA_DIR || path.join(process.cwd(), ".clipmint-data"));
+export const dataRoot = () => path.resolve(/* turbopackIgnore: true */ cloudMode() ? requestWorkspace()?.root || path.join(process.env.TMPDIR || "/tmp", "clipmint-wan") : process.env.CLIPMINT_DATA_DIR || path.join(process.cwd(), ".clipmint-data"));
 export function localPath(relative: string) {
   const full = path.resolve(dataRoot(), relative);
   if (!full.startsWith(dataRoot() + path.sep)) throw new WanError("Đường dẫn dữ liệu không hợp lệ.");
@@ -17,9 +21,28 @@ export function id(value: string) {
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(value)) throw new WanError("ID không hợp lệ.");
   return value;
 }
-export async function exists(file: string) { return stat(file).then(s => s.isFile() && s.size > 0).catch(() => false); }
-export async function readJSON<T>(file: string): Promise<T> { return JSON.parse(await readFile(file, "utf8")) as T; }
+export const relativePath = (file:string) => {
+  const relative=path.relative(dataRoot(),file);
+  if(relative.startsWith("..") || path.isAbsolute(relative)) throw new WanError("Đường dẫn dữ liệu không hợp lệ.");
+  return relative;
+};
+export async function ensureLocal(file:string) {
+  return cloudMode() ? blobDownload(relativePath(file),file) : file;
+}
+export async function persistFile(file:string) {
+  if(cloudMode()) {await blobWrite(relativePath(file),createReadStream(file));requestWorkspace()?.downloaded.add(file);}
+}
+export async function removeStored(file:string,recursive=false) {
+  if(cloudMode())await blobRemove(relativePath(file),recursive);
+  await rm(file,{recursive,force:true});requestWorkspace()?.downloaded.delete(file);
+}
+export async function fileSize(file:string) {
+  return cloudMode() ? (await head(blobKey(relativePath(file)))).size : (await stat(file)).size;
+}
+export async function exists(file: string) { return cloudMode() ? blobExists(relativePath(file)) : stat(file).then(s => s.isFile() && s.size > 0).catch(() => false); }
+export async function readJSON<T>(file: string): Promise<T> { return JSON.parse(cloudMode() ? (await blobRead(relativePath(file))).toString("utf8") : await readFile(file, "utf8")) as T; }
 export async function atomicJSON(file: string, value: unknown) {
+  if(cloudMode())await blobWrite(relativePath(file),JSON.stringify(value,null,2));
   await mkdir(path.dirname(file), { recursive: true });
   const temporary = file + "." + randomUUID() + ".tmp";
   await writeFile(temporary, JSON.stringify(value, null, 2), { mode: 0o600 });
@@ -37,6 +60,7 @@ export function contentHash(data: Buffer) { return createHash("sha256").update(d
 // Cross-process exclusive locks. A dead owner's PID can be reclaimed after restart.
 // Single local machine/filesystem only; no network filesystem or clustered deployment.
 export async function acquireLock(name: string): Promise<null | (() => Promise<void>)> {
+  if(cloudMode())return blobLock(id(name));
   const file = localPath("locks/" + id(name) + ".lock");
   await mkdir(path.dirname(file), { recursive: true });
   try { await writeFile(file, String(process.pid), { flag: "wx", mode: 0o600 }); }
@@ -61,6 +85,7 @@ export async function locked<T>(name: string, fn: () => Promise<T>): Promise<T> 
   throw new WanError("Dữ liệu đang được cập nhật. Hãy thử lại.", 409);
 }
 export async function files(folder: string) {
+  if(cloudMode())return blobFiles(folder);
   try { return await readdir(/* turbopackIgnore: true */ localPath(folder)); }
   catch (e) { if ((e as NodeJS.ErrnoException).code==="ENOENT") return []; throw e; }
 }
@@ -97,6 +122,7 @@ export async function importAsset(p: Project, file: string, kind: Asset["kind"],
   const relative = "projects/" + p.id + "/assets/" + assetId + extension;
   await mkdir(path.dirname(localPath(relative)), { recursive: true });
   await copyFile(file, localPath(relative));
+  await persistFile(localPath(relative));
   const a: Asset = { id: assetId, name, file: relative, hash: contentHash(bytes), size: bytes.length, mime, kind, duration };
   p.assets.push(a); return a;
 }

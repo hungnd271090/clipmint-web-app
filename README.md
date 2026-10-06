@@ -29,7 +29,7 @@ Open `http://localhost:3000`. The default backend is `http://localhost:8080`.
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 ```
 
-Never commit an OpenAI, Runway or fal API key. Provider calls for the original studio are made by the Go backend. The separate local Wan studio uses server-only settings and a local Node worker.
+Never commit an OpenAI, Runway or fal API key. Provider calls for the original studio are made by the Go backend. The separate Wan studio uses server-only settings, with a local worker at home or private Vercel Blob and bounded function steps on Vercel. See [Wan setup](docs/wan-product-video.md#deploy-on-vercel).
 
 ## Commands
 

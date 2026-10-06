@@ -1,10 +1,10 @@
-# ClipMint local Wan product video
+# ClipMint Wan product video — local and Vercel
 
 Route: **/product-video/wan**. API: **/api/wan/**.
 
 The original studio keeps its existing Go/Echo API, Runway recipe, OpenAI voice and FFmpeg WASM behavior. The existing /meta-ai page/component from feature/meta-ai-product-video-flow are carried forward verbatim. No Go API contracts are changed.
 
-The new flow uses a **local Next.js Node backend plus a separate persistent worker**. This adds durable jobs, file storage and native FFmpeg without a database, Redis, login or changes to the stateless Go service. OpenAI remains the vision/TTS provider already used by ClipMint; a server-side Responses/Speech adapter and a new GPT Image edits adapter serve the new flow. They read server configuration rather than using the original Go mock fallback.
+The new flow uses a **Next.js Node backend**, with local filesystem + worker for home use, or private Vercel Blob + bounded function steps on Vercel. This adds durable jobs, file storage and native FFmpeg without a database, Redis, login or changes to the stateless Go service. OpenAI remains the vision/TTS provider already used by ClipMint; a server-side Responses/Speech adapter and a new GPT Image edits adapter serve the new flow. They read server configuration rather than using the original Go mock fallback.
 
 ## Run locally
 
@@ -28,7 +28,26 @@ FFmpeg installation:
 - macOS: brew install ffmpeg.
 - Ubuntu: sudo apt install ffmpeg.
 
-The new backend is not designed for Vercel/serverless or a read-only filesystem. Its API rejects non-local hostnames by default. Advanced users can explicitly list trusted local hostnames in CLIPMINT_LOCAL_HOSTS; this does not add authentication.
+## Deploy on Vercel
+
+The same `/product-video/wan` route now runs on Vercel without a local worker or Go service changes. The backend detects `VERCEL=1`; do **not** point `CLIPMINT_DATA_DIR` at `/tmp` as durable storage.
+
+1. Deploy this repository with the usual Next.js preset, Node 24, `npm run build`, and Fluid compute enabled. The Wan API sets `maxDuration=300`.
+2. In **Storage → Create Database/Store → Blob**, create a **Private** store and connect it to the ClipMint project for Production and Preview. Keep the generated `BLOB_READ_WRITE_TOKEN` environment variable name. This token signs direct browser uploads; an OIDC-only connection does not suffice for this upload adapter.
+3. Optionally add server-only `FAL_KEY` and `OPENAI_API_KEY`, or save those keys through **Cấu hình AI** after connecting Blob.
+4. **Redeploy** after changing environment variables/store connections. Open `/product-video/wan` and verify the storage and FFmpeg statuses.
+
+Without a Blob token, the page and configuration status still open; creating a project explains the missing storage setup. A public Blob store is not supported: settings include private keys. Do not expose the read-write token with a `NEXT_PUBLIC_` prefix. Use the project's existing Vercel deployment access controls for personal access.
+
+Original files, metadata, settings, provider IDs, cache and completed output live under `clipmint/wan/v1/` in Private Blob. Preview branches use a separate `preview-<branch hash>` prefix by default. `CLIPMINT_BLOB_PREFIX` can override that namespace. File processing uses an isolated disposable `/tmp` workspace per request; it is never the source of durable state. Local operation remains unchanged. To exercise the cloud adapter outside Vercel, set `CLIPMINT_STORAGE=vercel-blob` plus the Blob token on Linux x64.
+
+Large uploads go directly from the browser to private Blob with a short-lived token restricted to a project staging path, content types and size. The backend then downloads, fully validates/normalizes and attaches the file. Preview/download responses stream private media, including byte ranges, rather than buffering large responses in a Function. FFmpeg 7 and ffprobe Linux x64 binaries and a licensed subtitle font are included in the Wan Function bundle; no system FFmpeg installation is needed on Vercel.
+
+There is no infinite in-process worker on Vercel. The browser invokes one bounded job step at a time, while fal renders independently in its durable provider queue. Keep the page open for polling, downloading and composition; reopening resumes stored jobs. Closing the page pauses further local processing but does not cancel a submitted fal job. Conditional Blob locks serialize writers across function instances and expire after the execution budget; a crash during a paid submit remains uncertain rather than automatically resubmitting.
+
+A Function step has a 300-second ceiling (provider/media operations use a shorter timeout). Very large inputs/long compositions can exceed function memory, temporary disk or execution limits and report a retryable step error. Wan's short product clips are the intended workload. Native media and mocked storage/provider tests verify the serverless adapter; actual account quotas and Blob integration still require a configured deployment.
+
+For a separate non-serverless local host, explicitly list its trusted hostname in `CLIPMINT_LOCAL_HOSTS`.
 
 ## Configuration
 
@@ -39,7 +58,7 @@ Open **Cấu hình AI** from the Wan route:
 - Resolution, seed, acceleration, video quality, write mode and prompt expansion.
 - Polling timeout/interval and concurrency (1–4 outstanding jobs, including provider jobs between polls).
 
-Keys are saved only in backend settings.json. Reading settings returns configuration flags and a full mask, never the stored key. Blank key inputs preserve existing keys. Settings and data are gitignored and excluded from Next output tracing. Never prefix provider keys with NEXT_PUBLIC_.
+Keys are saved only in backend settings.json (local file or private Blob, depending on mode). Reading settings returns configuration flags and a full mask, never the stored key. Blank key inputs preserve existing keys. Settings and data are gitignored and excluded from Next output tracing. Never prefix provider keys with NEXT_PUBLIC_.
 
 Alternatively, provide FAL_KEY, OPENAI_API_KEY, OPENAI_TEXT_MODEL, OPENAI_TTS_MODEL in .env.local or environment. The standalone worker loads Next environment files. Saved settings take precedence.
 
@@ -80,7 +99,7 @@ Set CLIPMINT_DATA_DIR to an absolute directory, e.g. Windows D:/ClipmintData. Ba
 | temp/ | Temporary conversion/composition files |
 | locks/, worker.json | Cross-process locks and worker heartbeat |
 
-Writes use temporary-file/rename and revisions. Running-job inputs are frozen; edits/uploads are blocked until the job finishes. Autosave persists editable choices; the project ID in the URL restores the selection.
+Local writes use temporary-file/rename and revisions; Vercel writes use private Blob and conditional distributed locks. Running-job inputs are frozen; edits/uploads are blocked until the job finishes. Autosave persists editable choices; the project ID in the URL restores the selection.
 
 Cache identities include content hashes, normalized prompts, model and output-affecting parameters. Final identities include source video/audio/music hashes, segment/volume settings and subtitles/narration. Keys and runtime timeout/poll settings are excluded. URL extraction downloads bytes first and caches their content hash.
 
@@ -94,7 +113,7 @@ Polling/download failure pauses the job. Retrying that step, or clicking create 
 
 If a process/connection dies during submit before an ID can be persisted, state becomes **uncertain**. No provider idempotency guarantee is assumed. Check the fal dashboard and enter its request ID to resume. For synchronous OpenAI calls interrupted by restart, the UI requires explicit acknowledgement before resending.
 
-A PID lock prevents a second worker on the same local filesystem. Stale locks from a dead process are reclaimed at restart. This storage is for one machine, not clustered/network filesystems.
+A PID lock prevents a second worker on the same local filesystem. Stale locks from a dead process are reclaimed at restart. Local storage is for one machine, not clustered/network filesystems. Vercel mode uses conditional Blob locks rather than PID locks.
 
 ## API outline
 
@@ -115,16 +134,20 @@ All endpoints use the /api/wan/ prefix. Actions: suggest, improve, copy, image, 
     npm test
     npm run build
     npm run test:wan-local
+    npm run test:wan-vercel
 
 Tests use synthetic media and stubbed provider HTTP, never real keys/inference. The local smoke test forces keys empty, starts real Next/worker processes, verifies upload/settings/projects across a full restart, checks missing-key errors and old/new routes.
 
-Verified locally: 50 tests (including 32 existing regression tests), native silent/audio/subtitle MP4, job dedup/resume/ambiguous submit/concurrency, cache existence/deletion, settings masking, upload decode and URL boundaries.
+Verified locally: 56 tests (including 32 existing regression tests and mocked private Blob cold-start/locking/upload/cache checks), native silent/audio/subtitle MP4, job dedup/resume/ambiguous submit/concurrency, cache existence/deletion, settings masking, upload decode and URL boundaries.
 
 Not verified without keys: actual fal generation/quota, OpenAI vision/image edits/TTS quality and real external video downloading. Browser visual/hydration automation could not run because Chromium was unavailable and its download was blocked; HTTP/API smoke and production builds were used.
 
 ## Official references checked 2026-10-06
 
 - [Wan Turbo schema](https://fal.ai/models/fal-ai/wan/v2.2-a14b/image-to-video/turbo/api)
+- [Vercel runtime filesystem](https://vercel.com/docs/functions/runtimes)
+- [Vercel private Blob SDK and conditional writes](https://vercel.com/docs/vercel-blob/using-blob-sdk)
+- [Vercel direct client uploads](https://vercel.com/docs/vercel-blob/client-upload)
 - [fal queue lifecycle](https://fal.ai/docs/documentation/model-apis/inference/queue)
 - [OpenAI image edit API](https://developers.openai.com/api/reference/resources/images)
 - [OpenAI speech API](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create)
