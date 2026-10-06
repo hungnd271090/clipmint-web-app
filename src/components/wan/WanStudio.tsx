@@ -121,7 +121,11 @@ export function WanStudio({initialStorage="directory"}:{initialStorage?:"directo
       setConfiguration(await api("settings"));const list=await api<{projects:Summary[]}>("projects");setProjects(list.projects);
       if(list.projects[0])await load(list.projects[0].id);else window.history.replaceState(null,"","/product-video/wan");
       setNotice("Đã kết nối thư mục. Dữ liệu sẽ được ghi tại đây.");
-    } catch(e){if(!(e instanceof DOMException && e.name==="AbortError"))setError(e instanceof Error?e.message:"Không mở được thư mục.");}
+    } catch(e){
+      if(e instanceof DOMException && e.name==="AbortError")return;
+      if(e instanceof DOMException && ["SecurityError","NotAllowedError"].includes(e.name))setError("Trình duyệt/khung nhúng này không cho chọn thư mục. Mở URL trực tiếp bằng Chrome hoặc Edge trên máy tính, rồi bấm Chọn thư mục lưu và cấp quyền đọc/ghi.");
+      else setError(e instanceof Error?e.message:"Không mở được thư mục.");
+    }
     finally{setBusy(false);}
   }
   async function reload() {if(current.current)await load(current.current.id);}

@@ -13,8 +13,8 @@ export class DirectoryStore {
   async pick(reconnect=false){
     if(!folderSupported())throw new Error("Chọn thư mục cần Chrome hoặc Edge trên máy tính, HTTPS và Web Locks. Mở trang bằng trình duyệt này.");
     // Both permission prompts are invoked directly from the user's click, before asynchronous work.
-    const picker=(window as unknown as {showDirectoryPicker(o:{mode:"readwrite";id:string}):Promise<DiskDirectory>}).showDirectoryPicker;
-    const h=reconnect && this.selected?this.selected:await picker({mode:"readwrite",id:"clipmint-wan"});
+    const pickerWindow=(window as unknown as {showDirectoryPicker(o:{mode:"readwrite";id:string}):Promise<DiskDirectory>});
+    const h=reconnect && this.selected?this.selected:await pickerWindow.showDirectoryPicker({mode:"readwrite",id:"clipmint-wan"});
     if(await h.requestPermission({mode:"readwrite"})!=="granted")throw new Error("Chưa được cấp quyền ghi thư mục.");
     await this.connect(h);await handleMemory(h);
   }
