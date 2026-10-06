@@ -2,12 +2,8 @@ import type { PublicSettings, Settings } from "../../features/wan/types";
 import { capabilities, WAN_ENDPOINT } from "../../features/wan/types";
 import { atomicJSON, localPath, locked, readJSON, WanError } from "./storage";
 import { cloudMode, cloudConfigured } from "./runtime";
-export const defaults: Settings = {
-  provider: "fal.ai", falKey: "", openaiKey: "", endpoint: WAN_ENDPOINT,
-  textModel: "gpt-4.1-mini", imageModel: "gpt-image-1", ttsModel: "gpt-4o-mini-tts",
-  resolution: "720p", timeoutSeconds: 1800, pollSeconds: 5, concurrency: 1,
-  acceleration: "regular", videoQuality: "high", videoWriteMode: "balanced", promptExpansion: false, seed: null,
-};
+import { defaults } from "../../features/wan/defaults";
+export { defaults } from "../../features/wan/defaults";
 export async function getSettings(): Promise<Settings> {
   let saved: Partial<Settings> = {};
   try { if(!cloudMode() || cloudConfigured())saved = await readJSON<Settings>(localPath("settings.json")); }

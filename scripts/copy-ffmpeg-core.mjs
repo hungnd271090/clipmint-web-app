@@ -10,3 +10,4 @@ for (const name of ["ffmpeg-core.js", "ffmpeg-core.wasm"]) {
   await cp(join(source, name), join(target, name));
 }
 
+await cp(join(root, "src/server/wan/fonts/DejaVuSans.ttf"), join(target, "DejaVuSans.ttf"));

@@ -3,17 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Action, AudioOptions, Job, Project, ProjectResponse, PublicSettings, Scene } from "@/features/wan/types";
+import { BrowserStudio } from "@/features/wan/browser/studio";
+import { folderSupported } from "@/features/wan/browser/disk";
 import { capabilities } from "@/features/wan/types";
 type Configuration = {settings:PublicSettings; dependencies:{tools:{name:string;available:boolean}[];instructions:string};worker:{running:boolean;mode?:string};storage:{mode:string;configured:boolean;instructions:string;uploadPrefix?:string}};
 type Summary = {id:string;name:string;updatedAt:string};
-async function api<T>(path:string,method="GET",body?:unknown):Promise<T> {
+async function serverApi<T>(path:string,method="GET",body?:unknown):Promise<T> {
   const response=await fetch("/api/wan/"+path,{method,cache:"no-store",
     headers:body instanceof FormData ? undefined : body===undefined ? undefined : {"Content-Type":"application/json"},
     body:body===undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body)});
   const result=await response.json().catch(()=>({error:"Server trả lỗi HTTP "+response.status+". Thử lại hoặc kiểm tra cấu hình triển khai."}));if(!response.ok)throw new Error(result.error || "Yêu cầu thất bại.");return result as T;
 }
 const isActive=(j:Job)=>["queued","running","polling"].includes(j.status);
-const assetURL=(p:Project,a:string)=>"/api/wan/projects/"+p.id+"/assets/"+a;
+const serverAssetURL=(p:Project,a:string)=>"/api/wan/projects/"+p.id+"/assets/"+a;
 function Field({label,children}:{label:string;children:React.ReactNode}) {return <label><span>{label}</span>{children}</label>;}
 function AudioPreview({src,start,end,volume}:{src:string;start:number;end:number|null;volume:number}) {
   const ref=useRef<HTMLAudioElement>(null);
@@ -22,7 +24,14 @@ function AudioPreview({src,start,end,volume}:{src:string;start:number;end:number
     onPlay={()=>{const a=ref.current;if(a && (a.currentTime<start || (end!==null && a.currentTime>=end)))a.currentTime=start;}}
     onTimeUpdate={()=>{const a=ref.current;if(a && end!==null && a.currentTime>=end)a.pause();}}/>;
 }
-export function WanStudio() {
+export function WanStudio({initialStorage="directory"}:{initialStorage?:"directory"|"server"}) {
+  const [local]=useState(()=>new BrowserStudio());
+  const [storageMode,setStorageMode]=useState<"directory"|"server">(initialStorage);
+  const [folderName,setFolderName]=useState("");
+  const directory=storageMode==="directory";
+  const api=useCallback(async <T,>(path:string,method="GET",body?:unknown):Promise<T>=>directory?local.api<T>(path,method,body):serverApi<T>(path,method,body),[directory,local]);
+  const assetURL=(p:Project,a:string)=>directory?local.assetURL(p,a):serverAssetURL(p,a);
+
   const [project,setProject]=useState<Project|null>(null);const current=useRef<Project|null>(null);
   const [jobs,setJobs]=useState<Job[]>([]);const [projects,setProjects]=useState<Summary[]>([]);
   const [configuration,setConfiguration]=useState<Configuration|null>(null);
@@ -36,22 +45,22 @@ export function WanStudio() {
   const load=useCallback(async(projectId:string)=>{
     const r=await api<ProjectResponse>("projects/"+projectId);
     current.current=r.project;setProject(r.project);setJobs(r.jobs);dirty.current=false;setSaved(true);
-    window.history.replaceState(null,"","/product-video/wan?project="+projectId);
-  },[]);
+    window.history.replaceState(null,"","/product-video/wan?project="+projectId+(directory?"":"&storage=server"));
+  },[api,directory]);
   useEffect(()=>{
     let stopped=false;
-    Promise.all([api<Configuration>("settings"),api<{projects:Summary[]}>("projects")]).then(async([config,list])=>{
+    (async()=>{if(directory){await local.initialize();if(!stopped)setFolderName(local.disk.selected?.name||"");}return Promise.all([api<Configuration>("settings"),api<{projects:Summary[]}>("projects")]);})().then(async([config,list])=>{
       if(stopped)return;setConfiguration(config);setProjects(list.projects);
       const selected=new URLSearchParams(window.location.search).get("project") || list.projects[0]?.id;
-      if(selected)await load(selected);
+      if(selected && config.storage.configured)await load(selected);
     }).catch(e=>{if(!stopped)setError(e.message);});
     return ()=>{stopped=true;};
-  },[load]);
+  },[load,api,directory,local]);
   const projectId=project?.id;
   const cloud=configuration?.storage.mode==="vercel-blob";
   const hasActiveJob=jobs.some(isActive);
   useEffect(()=>{
-    if(!cloud || !projectId || !hasActiveJob)return;
+    if((!cloud && !directory) || !projectId || !hasActiveJob)return;
     let stopped=false;
     async function tick(){
       if(tickRunning.current)return;tickRunning.current=true;
@@ -61,7 +70,7 @@ export function WanStudio() {
     }
     void tick();const timer=setInterval(()=>void tick(),5000);
     return ()=>{stopped=true;clearInterval(timer);};
-  },[cloud,projectId,hasActiveJob]);
+  },[cloud,directory,projectId,hasActiveJob,api]);
   useEffect(()=>{
     if(!projectId)return;
     let stopped=false;
@@ -74,7 +83,7 @@ export function WanStudio() {
       api<Configuration>("settings").then(c=>{if(!stopped)setConfiguration(c);}).catch(()=>{});
     },2500);
     return ()=>{stopped=true;clearInterval(timer);};
-  },[projectId]);
+  },[projectId,api]);
   function edit(fn:(p:Project)=>Project) {
     if(!current.current)return;
     assign(fn(current.current));dirty.current=true;editVersion.current++;setSaved(false);
@@ -90,7 +99,7 @@ export function WanStudio() {
     });
     saving.current=task;
     try{await task;}finally{if(saving.current===task)saving.current=null;}
-  },[]);
+  },[api]);
   useEffect(()=>{
     if(!project || !dirty.current || disabled)return;
     const timer=setTimeout(()=>{save().catch(e=>setError("Chưa lưu: "+e.message));},800);
@@ -100,6 +109,19 @@ export function WanStudio() {
     setBusy(true);setError("");setNotice("");
     try {await save();await fn();}
     catch(e){setError(e instanceof Error?e.message:"Yêu cầu thất bại.");}
+    finally{setBusy(false);}
+  }
+  async function selectFolder(reconnect:boolean) {
+    setBusy(true);setError("");
+    try {
+      // Do not await save/network before the native picker: it requires click activation.
+      if(!folderSupported())throw new Error("Chọn thư mục cần Chrome/Edge trên máy tính. Mở URL này trong Chrome hoặc Edge.");
+      await local.select(reconnect);setFolderName(local.disk.selected?.name||"");
+      setProject(null);current.current=null;setJobs([]);dirty.current=false;setSaved(true);
+      setConfiguration(await api("settings"));const list=await api<{projects:Summary[]}>("projects");setProjects(list.projects);
+      if(list.projects[0])await load(list.projects[0].id);else window.history.replaceState(null,"","/product-video/wan");
+      setNotice("Đã kết nối thư mục. Dữ liệu sẽ được ghi tại đây.");
+    } catch(e){if(!(e instanceof DOMException && e.name==="AbortError"))setError(e instanceof Error?e.message:"Không mở được thư mục.");}
     finally{setBusy(false);}
   }
   async function reload() {if(current.current)await load(current.current.id);}
@@ -155,13 +177,20 @@ export function WanStudio() {
         </select><button className="button secondary" disabled={disabled || !configuration?.storage.configured} onClick={()=>execute(async()=>{
           const r=await api<ProjectResponse>("projects","POST");assign(r.project);setJobs(r.jobs);
           setProjects(list=>[{id:r.project.id,name:"",updatedAt:r.project.updatedAt},...list]);dirty.current=false;setSaved(true);
-          window.history.replaceState(null,"","/product-video/wan?project="+r.project.id);
+          window.history.replaceState(null,"","/product-video/wan?project="+r.project.id+(directory?"":"&storage=server"));
         })}>+ Project mới</button></div></div>
       {error && <div className="error-banner" role="alert"><p>{error}</p><button aria-label="Đóng lỗi" onClick={()=>setError("")}>×</button></div>}
       {notice && <p className="ai-disclosure" role="status">{notice}</p>}
-      {configuration && !configuration.storage.configured && <p className="warning">Chưa kết nối lưu trữ Vercel. {configuration.storage.instructions}</p>}
+      <section className="panel"><div className="section-head"><div><h2>Lưu trên máy của bạn</h2><p>Project, ảnh, audio, video, cache và job lưu vào thư mục bạn chọn. Không cần Vercel Blob.</p></div></div>
+        <div className="wan-actions"><button className={"button "+(directory?"primary":"secondary")} disabled={disabled || !saved} onClick={()=>{window.history.replaceState(null,"","/product-video/wan");setStorageMode("directory");setProject(null);current.current=null;setJobs([]);setProjects([]);setConfiguration(null);}}>Thư mục máy người dùng</button>
+          <button className={"button "+(!directory?"primary":"secondary")} disabled={disabled || !saved} onClick={()=>{window.history.replaceState(null,"","/product-video/wan?storage=server");setStorageMode("server");setProject(null);current.current=null;setJobs([]);setProjects([]);setConfiguration(null);}}>Lưu trên server (tùy chọn)</button>
+          {directory && <button className="button primary" disabled={disabled || !saved} onClick={()=>void selectFolder(false)}>{folderName?"Đổi thư mục":"Chọn thư mục lưu"}</button>}
+          {directory && folderName && !configuration?.storage.configured && <button className="button secondary" disabled={busy} onClick={()=>void selectFolder(true)}>Cấp lại quyền thư mục</button>}</div>
+        {directory && <p className="ai-disclosure">{folderName?"Thư mục: "+folderName+" / clipmint-browser":"Chưa chọn thư mục."} · Chrome/Edge trên máy tính. Giữ tab mở khi xử lý; đóng tab rồi mở lại sẽ khôi phục project và theo dõi job Wan đã lưu.</p>}
+      </section>
+      {configuration && !configuration.storage.configured && <p className="warning">{configuration.storage.instructions}</p>}
       {configuration && !configuration.worker.running && <p className="warning">Worker chưa chạy. Chạy <code>npm run dev:wan</code> hoặc <code>npm run wan:worker</code> khi web đã chạy. Job đã lưu sẽ tiếp tục khi worker khởi động.</p>}
-      {showSettings && configuration && <SettingsPanel configuration={configuration} disabled={busy}
+      {showSettings && configuration && <SettingsPanel configuration={configuration} disabled={busy || !configuration.storage.configured}
         onSave={input=>execute(async()=>{await api("settings","PUT",input);setConfiguration(await api("settings"));setNotice("Đã lưu cấu hình.");})}
         onTest={()=>execute(async()=>{const r=await api<{message:string}>("settings/test","POST",{});setNotice(r.message);setConfiguration(await api("settings"));})}/>}
       {!project && <section className="panel"><h2>Tạo project để bắt đầu</h2><p>Bấm “Project mới” ở trên. Ảnh, prompt, lựa chọn và video được lưu {cloud?"bền vững trong Vercel Blob Private":"trên máy"}.</p></section>}
@@ -249,10 +278,10 @@ export function WanStudio() {
             <p className="ai-disclosure">Thời lượng mỗi cảnh do endpoint quyết định; schema Wan Turbo không có field duration. Thay tỷ lệ/resolution sẽ cần chủ động tạo lại cảnh phù hợp.</p>
             <div className="wan-actions"><button className="button primary" disabled={!duration || !toolsReady} onClick={()=>job("compose")}>Ghép & xuất MP4</button>
               {final && <button className="button secondary" onClick={()=>job("compose",undefined,true)}>Ghép lại · bỏ cache</button>}</div></fieldset>
-          {final && <div className="wan-final"><video className="wan-video" src={assetURL(project,final.id)} controls preload="metadata"/><a className="button primary" href={assetURL(project,final.id)+"?download=1"} download>↓ Tải MP4</a><p>Bản xuất đã lưu. Sau khi đổi lựa chọn, bấm ghép để cập nhật.</p></div>}
+          {final && <div className="wan-final"><video className="wan-video" src={assetURL(project,final.id)} controls preload="metadata"/><a className="button primary" href={assetURL(project,final.id)+(directory?"":"?download=1")} download={"clipmint-"+project.id+".mp4"}>↓ Tải MP4</a><p>Bản xuất đã lưu. Sau khi đổi lựa chọn, bấm ghép để cập nhật.</p></div>}
         </section>
       </div><aside>
-        <div className="privacy-card"><h3>{cloud?"Project trên Vercel":"Project trên máy của bạn"}</h3><p>Input và output lưu {cloud?"trong Blob Private":"local"}. Chỉ ảnh/prompt cần thiết gửi tới provider khi bạn bấm tạo. Key giữ ở backend.</p>{cloud && <p>Không cần worker local. Giữ trang mở để tải và ghép kết quả; mở lại sẽ tiếp tục với job đã lưu.</p>}<button className="button secondary" disabled={disabled || saved} onClick={()=>execute(save)}>Lưu ngay</button></div>
+        <div className="privacy-card"><h3>{cloud?"Project trên Vercel":"Project trên máy của bạn"}</h3><p>Input và output lưu {cloud?"trong Blob Private":"local"}. Chỉ ảnh/prompt cần thiết gửi tới provider khi bạn bấm tạo. {directory?"Key bạn nhập lưu trong settings.json của thư mục; hoặc dùng key môi trường trên Vercel. API proxy chỉ chuyển yêu cầu tới provider.":"Key giữ ở backend."}</p>{(cloud || directory) && <p>Không cần worker local. Giữ trang mở để tải và ghép kết quả; mở lại sẽ tiếp tục với job đã lưu.</p>}<button className="button secondary" disabled={disabled || saved} onClick={()=>execute(save)}>Lưu ngay</button></div>
         <div className="tips-card"><h3>Tiến trình</h3>{jobs.length===0?<p>Chưa có job.</p>:jobs.slice().reverse().map(j=><JobCard key={j.id} job={j} disabled={disabled} onRetry={(requestId,acknowledgeUncertain)=>execute(async()=>{await api("jobs/"+j.id+"/retry","POST",{requestId,acknowledgeUncertain});await reload();})}/>)}</div>
         <div className="tips-card"><h3>Cache</h3><p>{cache?cache.entries+" mục · "+(cache.bytes/1024/1024).toFixed(1)+" MB":"Input giống nhau dùng lại kết quả thành công."}</p><div className="wan-actions">
           <button className="button secondary" onClick={()=>execute(async()=>setCache(await api("cache")))}>Xem dung lượng</button><button className="button danger" disabled={disabled} onClick={()=>execute(async()=>{setCache(await api("cache","DELETE"));setNotice("Đã xóa cache; project/ảnh/video/audio đã lưu được giữ lại.");})}>Xóa cache</button></div></div>
@@ -292,6 +321,7 @@ function SettingsPanel({configuration,disabled,onSave,onTest}:{configuration:Con
       <label className="wan-check"><input type="checkbox" checked={v.promptExpansion} onChange={e=>update({promptExpansion:e.target.checked})}/>Bật prompt expansion</label>
       <label className="wan-check"><input type="checkbox" checked={show} onChange={e=>setShow(e.target.checked)}/>Hiện key đang nhập</label>
       <div className="wan-actions"><button className="button primary" onClick={async()=>{await onSave({...v,falKey,openaiKey});setFalKey("");setOpenaiKey("");}}>Lưu cấu hình</button><button className="button secondary" onClick={onTest}>Kiểm tra đã lưu · không inference</button></div></fieldset>
+    {configuration.storage.mode==="browser-directory" && <p className="ai-disclosure">Key nhập ở đây được lưu plaintext trong settings.json trên máy bạn, gửi qua HTTPS tới proxy khi gọi AI. Không chia sẻ file này. Có thể dùng FAL_KEY và OPENAI_API_KEY trong Vercel thay thế.</p>}
     <p className="ai-disclosure">Kiểm tra schema/cấu hình/storage/dependency; không tạo video/ảnh/giọng và không xác nhận key/quota. Endpoint khác cần bổ sung adapter.</p>
     <p>{configuration.dependencies.tools.map(t=>t.name+": "+(t.available?"✓ sẵn sàng":"thiếu")).join(" · ")}</p>
     {!configuration.dependencies.tools.every(t=>t.available) && <p className="warning">{configuration.dependencies.instructions}</p>}

@@ -152,3 +152,27 @@ Not verified without keys: actual fal generation/quota, OpenAI vision/image edit
 - [OpenAI image edit API](https://developers.openai.com/api/reference/resources/images)
 - [OpenAI speech API](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create)
 - [OpenAI voices](https://developers.openai.com/api/docs/guides/text-to-speech)
+
+## Vercel với thư mục trên máy người dùng (mặc định)
+
+Mở `/product-video/wan` bằng Chrome/Edge trên máy tính, bấm **Chọn thư mục lưu** và cấp quyền đọc/ghi. Không cần `BLOB_READ_WRITE_TOKEN`, database hay worker local. File System Access API yêu cầu HTTPS (localhost được phép). Trình duyệt không hỗ trợ sẽ hiện hướng dẫn đổi trình duyệt; không giả vờ đã lưu vào thư mục.
+
+Dữ liệu nằm trong `<thư mục đã chọn>/clipmint-browser/`:
+
+- `workspace.json`: định danh thư mục cho khóa giữa các tab cùng origin.
+- `settings.json`: tham số AI và key người dùng nhập (plaintext local). Không chia sẻ file này.
+- `projects/<id>/project.json`, `projects/<id>/assets/`: lựa chọn, ảnh gốc và bản sao output đã tải.
+- `jobs/<id>.json`: snapshot, trạng thái, request ID fal; không chứa key.
+- `cache/`: metadata/result dùng lại; xóa cache không xóa project hay ảnh/media đã lưu.
+
+IndexedDB chỉ nhớ directory handle, không thay thế lưu project trên đĩa. Reload sẽ mở lại thư mục khi quyền còn hiệu lực; nếu quyền hết, bấm **Cấp lại quyền thư mục**. Có thể mở thư mục cũ từ URL triển khai khác bằng nút chọn thư mục. Dùng một URL production ổn định: Web Locks chỉ phối hợp tab cùng origin, không khóa hai deployment/origin khác nhau cùng mở một thư mục.
+
+Giữ tab mở khi gọi AI và xử lý media. Mở lại sẽ tiếp tục theo dõi request ID Wan đã lưu. Nếu tab đóng/mất mạng lúc submit chưa nhận ID, job chuyển sang chưa xác định; khôi phục ID từ fal dashboard, không tự submit trả phí lại. Các API AI không có queue ID cần người dùng kiểm tra provider và xác nhận trước khi gọi lại.
+
+API `/api/wan-provider/[action]` là proxy không lưu trữ: nhận ảnh tham chiếu cần thiết (thu nhỏ JPEG tối đa 1536px/300KB mỗi ảnh), chuyển sang adapter OpenAI/fal hiện có, trả kết quả để ghi vào thư mục. Wan chỉ nhận một ảnh. Để dùng key môi trường, đặt `FAL_KEY`, `OPENAI_API_KEY` trong Vercel và redeploy; hoặc nhập key trong **Cấu hình AI** để lưu trên máy. API đọc cấu hình chỉ trả trạng thái/key đã che. Không inference khi kiểm tra cấu hình.
+
+FFmpeg WASM chạy trong Web Worker trên máy người dùng: kiểm tra video, trích xuất audio, ghép nhiều cảnh, mix nhạc/giọng, cắt audio, phụ đề và MP4. Postinstall sao chép core JS/WASM và font DejaVu Sans sang `public/ffmpeg`. Xử lý nhiều cảnh/file lớn tốn RAM và có thể chậm; timeout hoặc thiếu asset có lỗi rõ ràng. Audio tắt xuất không có track audio. Audio dài hơn video với lựa chọn thêm cảnh sẽ dừng và yêu cầu chủ động tạo cảnh; không tự gọi Wan.
+
+Các chế độ Node filesystem/Vercel Blob trước đây vẫn truy cập được bằng **Lưu trên server (tùy chọn)** hoặc `?storage=server`; studio cũ không thay đổi.
+
+Kiểm tra bổ sung: filesystem giả lập có ghi bền qua instance mới, khóa/dedup, request ID sau reload, cache và đổi audio; kiểm tra dựng MP4 thật bằng chính FFmpeg WASM core (không gọi AI trả phí).
