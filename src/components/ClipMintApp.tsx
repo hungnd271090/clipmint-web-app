@@ -288,7 +288,7 @@ export function ClipMintApp() {
   }
 
   return <>
-    <header className="topbar"><a className="brand" href="#top" aria-label="ClipMint AI"><span className="brand-mark">C</span><span>ClipMint <b>AI</b></span></a><nav><a href="#how">Cách hoạt động</a><a href="#privacy">Quyền riêng tư</a><span className="beta">MVP beta</span></nav></header>
+    <header className="topbar"><a className="brand" href="#top" aria-label="ClipMint AI"><span className="brand-mark">C</span><span>ClipMint <b>AI</b></span></a><nav><a href="/product-video/wan">Video sản phẩm · Wan</a><a href="/meta-ai">Meta AI</a><a href="#how">Cách hoạt động</a><a href="#privacy">Quyền riêng tư</a><span className="beta">MVP beta</span></nav></header>
     <main id="top">
       <section className="hero"><div className="eyebrow"><span>✦</span> AI VIDEO AFFILIATE STUDIO</div><h1>Biến video hoặc ảnh thành<br/><em>video bán hàng cuốn hút</em></h1><p>Tải video thô hoặc chỉ dán link sản phẩm. ClipMint gợi ý hook, sáng tạo kịch bản và dựng video ngay trên máy.</p><div className="trust-row"><span>✓ Chỉ gửi frame/ảnh nén cho AI phân tích</span><span>✓ Tối đa 3 video</span><span>✓ Xuất MP4 dọc 1080p</span></div></section>
       <div className="workspace">

@@ -1,0 +1,30 @@
+.wan-studio { width:min(1240px,calc(100% - 36px));margin:36px auto 80px;overflow:visible; }
+.wan-heading { display:flex;justify-content:space-between;gap:25px;align-items:center;margin-bottom:32px; }
+.wan-heading h1 { margin:18px 0 10px;font-size:clamp(28px,4vw,43px);letter-spacing:-1.5px; }
+.wan-heading p,.wan-studio .panel p { color:var(--muted);line-height:1.6; }
+.wan-projects { display:flex;flex-direction:column;gap:10px;min-width:230px; }
+.wan-layout { display:grid;grid-template-columns:minmax(0,1fr) 285px;gap:22px;align-items:start; }
+.wan-studio fieldset { border:0;padding:0;margin:0;min-width:0; }
+.wan-tabs,.wan-actions { display:flex;flex-wrap:wrap;gap:9px;margin:15px 0; }
+.wan-tabs .button { flex:1; }
+.wan-check { display:flex;align-items:center;gap:10px;margin:17px 0;line-height:1.5;font-size:13px; }
+.wan-check input { width:18px;height:18px;accent-color:var(--mint-dark);flex:none; }
+.wan-upload { display:flex;align-items:center;gap:16px;border:1px dashed #9fcfc1;border-radius:12px;padding:16px;margin:15px 0;background:var(--mint-soft);font-size:13px; }
+.wan-upload input { padding:0;border:0;background:transparent;max-width:65%; }
+.wan-fields { margin-top:20px; }
+.wan-scenes { display:grid;gap:20px;margin-top:22px; }
+.wan-scene { padding:20px;border:1px solid var(--line);border-radius:15px;background:#fcfefd; }
+.wan-scene-head { display:flex;justify-content:space-between;align-items:center;margin-bottom:16px; }
+.wan-scene-preview { display:flex;gap:18px;align-items:center;margin:20px 0; }
+.wan-scene-preview img { width:140px;max-height:230px;object-fit:contain;background:#edf4f1;border-radius:12px; }
+.wan-scene-preview p { font-size:12px; }
+.wan-video { display:block;max-width:100%;width:280px;max-height:480px;margin:16px auto;border-radius:12px;background:#0c1714; }
+.wan-studio audio { width:100%;margin:12px 0; }
+.wan-final { text-align:center;margin-top:20px; }.wan-final a { display:inline-block;text-decoration:none; }
+.wan-job { border-bottom:1px solid var(--line);padding:12px 0;display:flex;flex-direction:column;gap:8px; }
+.wan-job strong { font-size:12px; }.wan-job small { font-size:10px;color:var(--muted);overflow-wrap:anywhere; }
+.wan-job .form-error { font-size:11px;line-height:1.5; }.wan-job input { font-size:11px; }
+.wan-studio .warning,.wan-studio .error-banner { margin:15px 0; }
+.wan-studio .tips-card p { color:var(--muted);font-size:12px;line-height:1.6; }
+@media(max-width:900px) { .wan-layout { grid-template-columns:1fr; }.wan-layout aside { position:static; }.wan-heading { flex-direction:column;align-items:stretch; }.wan-projects { flex-direction:row; }.wan-projects select { min-width:0; }.topbar nav a[href="/product-video/wan"] { display:inline; } }
+@media(max-width:620px) { .wan-studio { width:calc(100% - 20px); }.wan-upload { flex-direction:column;align-items:flex-start; }.wan-upload input { max-width:100%; }.wan-scene { padding:14px; }.wan-scene-preview { align-items:flex-start; }.wan-scene-preview img { width:100px; }.topbar nav a[href="/product-video/wan"] { font-size:11px; } }

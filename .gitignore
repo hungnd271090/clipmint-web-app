@@ -7,4 +7,5 @@ coverage/
 *.log
 *.tsbuildinfo
 .DS_Store
+.clipmint-data/
 public/ffmpeg/
