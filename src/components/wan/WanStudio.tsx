@@ -136,9 +136,11 @@ export function WanStudio({initialStorage="directory"}:{initialStorage?:"directo
     });
   }
   async function upload(files:FileList|null,kind:"image"|"audio"|"music") {
-    if(!files?.length)return;
+    // The change handler clears the input immediately; FileList is live.
+    const selectedFiles=Array.from(files || []);
+    if(!selectedFiles.length)return;
     await execute(async()=>{
-      for(const file of Array.from(files)){
+      for(const file of selectedFiles){
         const projectId=current.current!.id;
         let r:ProjectResponse;
         if(cloud){
